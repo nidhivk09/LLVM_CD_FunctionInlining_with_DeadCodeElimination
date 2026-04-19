@@ -15,7 +15,7 @@ LLVM build lives. **Both files must have the same path.**
 
 ```bash
 # macOS example (path with a space — keep the quotes!):
-DEFAULT_LLVM_BUILD="/Volumes/Nayu 1TB/llvm-workspace/build"
+DEFAULT_LLVM_BUILD="/Volumes/..."
 
 # Linux example:
 DEFAULT_LLVM_BUILD="/home/yourname/llvm-project/build"
@@ -25,7 +25,7 @@ Alternatively, export it as an environment variable so you never have to
 edit any file:
 
 ```bash
-export LLVM_BUILD="/Volumes/Nayu 1TB/llvm-workspace/build"
+export LLVM_BUILD="/Volumes/..."
 ```
 
 ### Step 2 — Build
