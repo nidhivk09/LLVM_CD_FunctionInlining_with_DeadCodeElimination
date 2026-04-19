@@ -51,7 +51,7 @@ Expected result: **5/5 PASS**.
 
 ```bash
 # macOS
-LLVM="/Volumes/Nayu 1TB/llvm-workspace/build"
+LLVM="/Volumes/..."
 
 "$LLVM/bin/opt" \
   --enable-new-pm=0 \
