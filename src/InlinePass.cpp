@@ -6,12 +6,13 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/PassManager.h"
+#include "llvm/IR/PassManager.h"      // ModuleAnalysisManager is defined here
 #include "llvm/Plugins/PassPlugin.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Analysis/CallGraph.h"
 
 using namespace llvm;
 
@@ -20,37 +21,49 @@ static const unsigned INLINE_THRESHOLD = 45;
 namespace {
 
 struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &/*MAM*/) {
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     bool Changed = false;
     SmallVector<Function *, 16> ToInline;
 
-    // ── PHASE 1: IDENTIFY candidates ─────────────────────────────────────
+    // Get the CallGraph from the analysis manager
+    CallGraph &CG = MAM.getResult<CallGraphAnalysis>(M);
+
+    // ── PHASE 1: IDENTIFY candidates via CallGraph ───────────────────────
     for (Function &F : M) {
       if (F.isDeclaration() || F.getName() == "main") continue;
 
-      // Recursion check: does F call itself?
+      CallGraphNode *CGN = CG[&F];
+
+      // 1. Recursion check
       bool Recursive = false;
-      for (User *U : F.users()) {
-        if (auto *CB = dyn_cast<CallBase>(U)) {
-          if (CB->getFunction() == &F) { Recursive = true; break; }
+      for (auto &CallRecord : *CGN) {
+        if (CallRecord.second == CGN) { 
+          Recursive = true;
+          break;
         }
       }
       if (Recursive) {
-        errs() << "  @" << F.getName() << ": recursive → blocked\n";
+        errs() << "  @" << F.getName() << ": recursive -> blocked\n";
         continue;
       }
 
-      // Cost model: instructions × call-sites
+      // 2. Cost model
       unsigned InstCount = 0;
       for (auto &BB : F) {
-          for (auto &I : BB) {
-              if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
-          }
+        for (auto &I : BB) {
+          if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
+        }
       }
 
+      // 3. Call frequency via CallGraph
       unsigned CallCount = 0;
-      for (User *U : F.users())
-        if (isa<CallBase>(U)) CallCount++;
+      for (auto &KV : CG) {
+        CallGraphNode *CallerNode = KV.second.get();
+        if (!CallerNode->getFunction() || CallerNode->getFunction() == &F) continue;
+        for (auto &CallRecord : *CallerNode) {
+          if (CallRecord.second == CGN) CallCount++;
+        }
+      }
 
       unsigned Cost = InstCount * CallCount;
       if (CallCount > 0 && Cost < INLINE_THRESHOLD) {
@@ -58,16 +71,15 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
                << "x" << CallCount << "=" << Cost
                << " < " << INLINE_THRESHOLD << " -> will inline\n";
         ToInline.push_back(&F);
-      } else {
+      } else if (CallCount > 0) {
         errs() << "  @" << F.getName() << ": cost " << InstCount
                << "x" << CallCount << "=" << Cost
                << " >= " << INLINE_THRESHOLD << " -> skipped\n";
       }
     }
 
-    // ── PHASE 2: INLINE ──────────────────────────────────────────────────
+    // ── PHASE 2: INLINE sites ────────────────────────────────────────────
     for (Function *F : ToInline) {
-      // Re-collect calls because the previous inlining might have changed things
       SmallVector<CallBase *, 8> Calls;
       for (User *U : F->users())
         if (auto *CB = dyn_cast<CallBase>(U)) Calls.push_back(CB);
@@ -79,17 +91,13 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
       }
     }
 
-    // ── PHASE 3: DCE (Safe Deletion) ──────────────────────────────────────
-    // Collect all dead functions into a separate list first
+    // ── PHASE 3: DCE (Safe Deletion) ─────────────────────────────────────
     SmallVector<Function *, 16> DeadPool;
     for (Function &F : M) {
       if (F.isDeclaration() || F.getName() == "main") continue;
-      if (F.use_empty()) {
-        DeadPool.push_back(&F);
-      }
+      if (F.use_empty()) DeadPool.push_back(&F);
     }
 
-    // Now delete them outside the iteration of M.functions()
     for (Function *F : DeadPool) {
       errs() << "  @" << F->getName() << ": no uses -> deleted\n";
       F->eraseFromParent();
@@ -104,14 +112,17 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
 
 } // end anonymous namespace
 
-// ── New PM plugin entry point ─────────────────────────────────────────────
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
   return {
-    LLVM_PLUGIN_API_VERSION,
-    "InlineDCEPass",
-    LLVM_VERSION_STRING,
+    LLVM_PLUGIN_API_VERSION, "InlineDCEPass", LLVM_VERSION_STRING,
     [](PassBuilder &PB) {
+      // REGISTER ANALYSIS HERE
+      PB.registerAnalysisRegistrationCallback(
+        [](ModuleAnalysisManager &MAM) {
+          MAM.registerPass([&] { return CallGraphAnalysis(); });
+        });
+
       PB.registerPipelineParsingCallback(
         [](StringRef Name, ModulePassManager &MPM,
            ArrayRef<PassBuilder::PipelineElement>) -> bool {
