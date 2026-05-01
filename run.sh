@@ -1,17 +1,11 @@
 #!/bin/bash
 # ============================================================================
 # run.sh — Runs all 5 test cases through the InlineDCEPass
-#
-# USAGE:
-#   ./run.sh
-#   LLVM_BUILD="/your/path" ./run.sh   (if build path differs)
-#
-# REQUIRES: ./build.sh must be run first to produce the plugin.
+# Updated for LLVM 15+ new pass manager (legacy PM removed in LLVM 17+)
 # ============================================================================
 
 set -e
 
-# ─── Same path detection as build.sh ────────────────────────────────────────
 DEFAULT_LLVM_BUILD="/Volumes/Nayu 1TB/llvm-workspace/build"
 LLVM_BUILD="${LLVM_BUILD:-$DEFAULT_LLVM_BUILD}"
 
@@ -24,7 +18,6 @@ fi
 OPT="$LLVM_BUILD/bin/opt"
 PLUGIN="./pass-build/InlineDCEPass.$LIB_EXT"
 
-# ─── Pre-flight checks ───────────────────────────────────────────────────────
 if [ ! -f "$PLUGIN" ]; then
   echo "ERROR: Plugin not found at $PLUGIN"
   echo "Run ./build.sh first."
@@ -65,22 +58,21 @@ run_test() {
   echo "──────────────────────────────────────────────────────"
 
   if [ ! -f "$input" ]; then
-    echo "  ✗ SKIP — $input not found"
+    echo "  SKIP — $input not found"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     return
   fi
 
-  # ── Run the pass ───────────────────────────────────────────────────────────
-  # --enable-new-pm=0 is REQUIRED for legacy-style passes (RegisterPass /
-  # ModulePass) on LLVM 17+. Without it, the new pass manager runs instead
-  # and silently ignores your -load plugin.
+  # ── Run the pass (new PM syntax) ──────────────────────────────────────────
+  # -load-pass-plugin  : loads your .dylib/.so plugin
+  # -passes="inline-dce" : runs the pass registered under that name
+  # stderr from errs() is piped through grep to show diagnostics
   "$OPT" \
-    --enable-new-pm=0 \
-    -load "$PLUGIN" \
-    -inline-dce \
+    -load-pass-plugin "$PLUGIN" \
+    -passes="inline-dce" \
     -S "$input" \
     -o "$output" \
-    2>&1 | grep -E "ANALYZING|INLINING|DELETING|BLOCKED|SKIPPED|KEEPING|Inlined|deleted|Blocked|Skipped" \
+    2>&1 | grep -E "recursive|blocked|inline|deleted|skipped|cost" \
          | sed 's/^/    /' || true
 
   echo ""
@@ -94,10 +86,10 @@ run_test() {
   echo "  Functions after  : $after"
   echo "  Expected after   : $expected"
 
-  # ── Show what remains ─────────────────────────────────────────────────────
   echo ""
   echo "  Remaining functions:"
-  grep "^define" "$output" | sed 's/define[^@]*//' | sed 's/^/    /' || echo "    (none)"
+  grep "^define" "$output" | sed 's/define[^@]*//' | sed 's/^/    /' \
+    || echo "    (none)"
 
   echo ""
   echo "  Remaining user call instructions:"
@@ -107,23 +99,22 @@ run_test() {
     echo "    (none)"
   fi
 
-  # ── Verify IR correctness ─────────────────────────────────────────────────
+  # ── Verify IR correctness (new PM syntax) ─────────────────────────────────
   echo ""
-  if "$OPT" --enable-new-pm=0 -verify -S "$output" -o /dev/null 2>/dev/null; then
-    echo "  IR verify : ✓ valid"
+  if "$OPT" -passes="verify" -S "$output" -o /dev/null 2>/dev/null; then
+    echo "  IR verify : valid"
   else
-    echo "  IR verify : ✗ MALFORMED IR (your pass produced invalid output)"
+    echo "  IR verify : MALFORMED IR (your pass produced invalid output)"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     return
   fi
 
-  # ── Pass/Fail ─────────────────────────────────────────────────────────────
   echo ""
   if [ "$after" -eq "$expected" ]; then
-    echo "  ✓ PASS"
+    echo "  PASS"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo "  ✗ FAIL — got $after functions, expected $expected"
+    echo "  FAIL — got $after functions, expected $expected"
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 }
@@ -131,31 +122,34 @@ run_test() {
 # ============================================================================
 # THE 5 TESTS
 # ============================================================================
-run_test "small_func"     1  "@add: cost 2×1=2 < 50 → inlined and deleted"
-run_test "large_func"     2  "@heavy_compute: cost 56×1=56 ≥ 50 → skipped"
-run_test "recursive_func" 2  "@factorial: recursive → blocked before cost check"
-run_test "multi_call"     1  "@square: cost 2×5=10 < 50 → all 5 sites inlined"
+run_test "small_func"     1  "@add: cost 2x1=2 < 50 -> inlined and deleted"
+run_test "large_func"     2  "@heavy_compute: cost 56x1=56 >= 50 -> skipped"
+run_test "recursive_func" 2  "@factorial: recursive -> blocked before cost check"
+run_test "multi_call"     1  "@square: cost 2x5=10 < 50 -> all 5 sites inlined"
 run_test "mixed"          3  "@tiny inlined, @big skipped, @recur blocked"
 
 # ============================================================================
-# BASELINE vs LLVM's built-in -always-inline
+# BASELINE vs LLVM's built-in always-inline (new PM name)
 # ============================================================================
 echo ""
 echo "========================================================"
-echo "  Baseline: your pass vs LLVM -always-inline"
+echo "  Baseline: your pass vs LLVM always-inline"
 echo "========================================================"
-printf "  %-22s  %-10s  %-10s  %-10s\n" "Test" "Yours" "Built-in" "Lines(yours)"
-printf "  %-22s  %-10s  %-10s  %-10s\n" "──────────────────────" "──────────" "──────────" "────────────"
+printf "  %-22s  %-10s  %-10s  %-10s\n" \
+  "Test" "Yours" "Built-in" "Lines(yours)"
+printf "  %-22s  %-10s  %-10s  %-10s\n" \
+  "──────────────────────" "──────────" "──────────" "────────────"
 
 for name in small_func large_func recursive_func multi_call mixed; do
   baseline_out="tests/output/${name}_baseline.ll"
 
-  "$OPT" --enable-new-pm=0 -always-inline \
+  # New PM name for always-inline is "always-inline"
+  "$OPT" -passes="always-inline" \
     -S "tests/${name}.ll" -o "$baseline_out" 2>/dev/null || true
 
-  yours=$(grep -c    "^define" "tests/output/${name}_after.ll"    2>/dev/null || echo "?")
-  builtin=$(grep -c  "^define" "$baseline_out"                    2>/dev/null || echo "?")
-  lines=$(wc -l <    "tests/output/${name}_after.ll"              2>/dev/null | tr -d ' ' || echo "?")
+  yours=$(grep -c   "^define" "tests/output/${name}_after.ll"  2>/dev/null || echo "?")
+  builtin=$(grep -c "^define" "$baseline_out"                  2>/dev/null || echo "?")
+  lines=$(wc -l <   "tests/output/${name}_after.ll"            2>/dev/null | tr -d ' ' || echo "?")
 
   printf "  %-22s  %-10s  %-10s  %-10s\n" "$name" "$yours" "$builtin" "$lines"
 done

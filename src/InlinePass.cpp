@@ -3,195 +3,124 @@
 // File: src/InlinePass.cpp
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Analysis/CallGraph.h"
-#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Plugins/PassPlugin.h"
+#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
-static const unsigned INLINE_THRESHOLD = 50;
+static const unsigned INLINE_THRESHOLD = 45;
 
 namespace {
 
-struct InlineAndDCEPass : public ModulePass {
-  static char ID;
-  InlineAndDCEPass() : ModulePass(ID) {}
-
-  unsigned NumInlined = 0;
-  unsigned NumDeleted = 0;
-  unsigned NumBlocked = 0;
-  unsigned NumSkipped = 0;
-
-  bool runOnModule(Module &M) override {
-
+struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &/*MAM*/) {
     bool Changed = false;
+    SmallVector<Function *, 16> ToInline;
 
-    errs() << "\n========================================\n";
-    errs() << "  InlineAndDCE Pass Starting\n";
-    errs() << "  Threshold = " << INLINE_THRESHOLD << "\n";
-    errs() << "========================================\n\n";
-
-    // ── CANDIDATE STRUCT ────────────────────────────────────────────────────
-    // Holds everything about one function we plan to inline.
-    // We collect candidates in Phase 1 BEFORE modifying anything,
-    // because InlineFunction() invalidates iterators.
-    struct Candidate {
-      Function               *Callee;
-      SmallVector<CallInst*,8> CallSites;
-      unsigned               InstCount;
-      unsigned               CallFreq;
-      unsigned               Cost;
-    };
-
-    SmallVector<Candidate, 16> ToInline;
-
-    // ── PHASE 1: ANALYZE ────────────────────────────────────────────────────
+    // ── PHASE 1: IDENTIFY candidates ─────────────────────────────────────
     for (Function &F : M) {
-      if (F.isDeclaration()) continue; // No body → nothing to inline
-      if (F.isVarArg())      continue; // InlineFunction() can't handle these
-      if (F.getName() == "main") continue;
+      if (F.isDeclaration() || F.getName() == "main") continue;
 
-      if (isDirectlyRecursive(F)) {
-        errs() << "[BLOCKED-RECURSIVE] " << F.getName() << "\n";
-        NumBlocked++;
-        continue;
-      }
-
-      unsigned InstCount = countInstructions(F);
-      SmallVector<CallInst*, 8> Sites = findCallSites(F, M);
-
-      if (Sites.empty()) {
-        errs() << "[UNCALLED] " << F.getName()
-               << " (instructions=" << InstCount << ")\n";
-        continue;
-      }
-
-      unsigned Freq = Sites.size();
-      unsigned Cost = InstCount * Freq;
-
-      errs() << "[ANALYZING] " << F.getName()
-             << "  insts=" << InstCount
-             << "  calls=" << Freq
-             << "  cost=" << Cost;
-
-      if (Cost < INLINE_THRESHOLD) {
-        errs() << "  → WILL INLINE\n";
-        ToInline.push_back({&F, Sites, InstCount, Freq, Cost});
-      } else {
-        errs() << "  → SKIPPED (cost " << Cost
-               << " >= threshold " << INLINE_THRESHOLD << ")\n";
-        NumSkipped++;
-      }
-    }
-
-    // ── PHASE 2: INLINE ─────────────────────────────────────────────────────
-    for (auto &Cand : ToInline) {
-      errs() << "\n[INLINING] " << Cand.Callee->getName()
-             << " at " << Cand.CallSites.size() << " site(s)\n";
-
-      for (CallInst *CI : Cand.CallSites) {
-        InlineFunctionInfo IFI;
-        InlineResult IR = InlineFunction(*CI, IFI);
-
-        if (IR.isSuccess()) {
-          errs() << "  ✓ inlined into "
-                 << CI->getParent()->getParent()->getName() << "\n";
-          NumInlined++;
-          Changed = true;
-        } else {
-          errs() << "  ✗ inline failed: " << IR.getFailureReason() << "\n";
+      // Recursion check: does F call itself?
+      bool Recursive = false;
+      for (User *U : F.users()) {
+        if (auto *CB = dyn_cast<CallBase>(U)) {
+          if (CB->getFunction() == &F) { Recursive = true; break; }
         }
       }
-    }
+      if (Recursive) {
+        errs() << "  @" << F.getName() << ": recursive → blocked\n";
+        continue;
+      }
 
-    // ── PHASE 3: DELETE DEAD FUNCTIONS ──────────────────────────────────────
-    SmallVector<Function*, 8> ToDelete;
+      // Cost model: instructions × call-sites
+      unsigned InstCount = 0;
+      for (auto &BB : F) {
+          for (auto &I : BB) {
+              if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
+          }
+      }
 
-    for (auto &Cand : ToInline) {
-      if (Cand.Callee->use_empty()) {
-        errs() << "[DELETING] " << Cand.Callee->getName() << "\n";
-        ToDelete.push_back(Cand.Callee);
+      unsigned CallCount = 0;
+      for (User *U : F.users())
+        if (isa<CallBase>(U)) CallCount++;
+
+      unsigned Cost = InstCount * CallCount;
+      if (CallCount > 0 && Cost < INLINE_THRESHOLD) {
+        errs() << "  @" << F.getName() << ": cost " << InstCount
+               << "x" << CallCount << "=" << Cost
+               << " < " << INLINE_THRESHOLD << " -> will inline\n";
+        ToInline.push_back(&F);
       } else {
-        errs() << "[KEEPING] " << Cand.Callee->getName()
-               << " (still has users)\n";
+        errs() << "  @" << F.getName() << ": cost " << InstCount
+               << "x" << CallCount << "=" << Cost
+               << " >= " << INLINE_THRESHOLD << " -> skipped\n";
       }
     }
 
-    for (Function *F : ToDelete) {
+    // ── PHASE 2: INLINE ──────────────────────────────────────────────────
+    for (Function *F : ToInline) {
+      // Re-collect calls because the previous inlining might have changed things
+      SmallVector<CallBase *, 8> Calls;
+      for (User *U : F->users())
+        if (auto *CB = dyn_cast<CallBase>(U)) Calls.push_back(CB);
+
+      for (CallBase *CB : Calls) {
+        InlineFunctionInfo IFI;
+        if (InlineFunction(*CB, IFI).isSuccess())
+          Changed = true;
+      }
+    }
+
+    // ── PHASE 3: DCE (Safe Deletion) ──────────────────────────────────────
+    // Collect all dead functions into a separate list first
+    SmallVector<Function *, 16> DeadPool;
+    for (Function &F : M) {
+      if (F.isDeclaration() || F.getName() == "main") continue;
+      if (F.use_empty()) {
+        DeadPool.push_back(&F);
+      }
+    }
+
+    // Now delete them outside the iteration of M.functions()
+    for (Function *F : DeadPool) {
+      errs() << "  @" << F->getName() << ": no uses -> deleted\n";
       F->eraseFromParent();
-      NumDeleted++;
       Changed = true;
     }
 
-    // ── PHASE 4: DEAD BLOCK ELIMINATION ─────────────────────────────────────
-    unsigned FuncsWithDeadBlocks = 0;
-    for (Function &F : M) {
-      if (F.isDeclaration()) continue;
-      if (removeUnreachableBlocks(F)) {
-        FuncsWithDeadBlocks++;
-        Changed = true;
-      }
-    }
-
-    errs() << "\n========================================\n";
-    errs() << "  InlineAndDCE Pass Summary\n";
-    errs() << "  Inlined:           " << NumInlined  << " call site(s)\n";
-    errs() << "  Functions deleted: " << NumDeleted  << "\n";
-    errs() << "  Blocked recursive: " << NumBlocked  << "\n";
-    errs() << "  Skipped (cost):    " << NumSkipped  << "\n";
-    errs() << "  Dead blocks in:    " << FuncsWithDeadBlocks << " function(s)\n";
-    errs() << "========================================\n\n";
-
-    return Changed;
+    return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
 
-  // ── HELPERS ─────────────────────────────────────────────────────────────────
-
-  bool isDirectlyRecursive(Function &F) {
-    for (BasicBlock &BB : F)
-      for (Instruction &I : BB)
-        if (auto *CI = dyn_cast<CallInst>(&I))
-          if (CI->getCalledFunction() == &F)
-            return true;
-    return false;
-  }
-
-  unsigned countInstructions(Function &F) {
-    unsigned Count = 0;
-    for (BasicBlock &BB : F)
-      Count += BB.size();
-    return Count;
-  }
-
-  SmallVector<CallInst*, 8> findCallSites(Function &Target, Module &M) {
-    SmallVector<CallInst*, 8> Sites;
-    for (Function &Caller : M) {
-      if (&Caller == &Target) continue;
-      for (BasicBlock &BB : Caller)
-        for (Instruction &I : BB)
-          if (auto *CI = dyn_cast<CallInst>(&I))
-            if (CI->getCalledFunction() == &Target)
-              Sites.push_back(CI);
-    }
-    return Sites;
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {}
+  static bool isRequired() { return true; }
 };
 
 } // end anonymous namespace
 
-char InlineAndDCEPass::ID = 0;
-
-static RegisterPass<InlineAndDCEPass>
-    X("inline-dce",
-      "Assignment 12: Function Inlining + Dead Code Elimination",
-      false,
-      false);
+// ── New PM plugin entry point ─────────────────────────────────────────────
+extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
+llvmGetPassPluginInfo() {
+  return {
+    LLVM_PLUGIN_API_VERSION,
+    "InlineDCEPass",
+    LLVM_VERSION_STRING,
+    [](PassBuilder &PB) {
+      PB.registerPipelineParsingCallback(
+        [](StringRef Name, ModulePassManager &MPM,
+           ArrayRef<PassBuilder::PipelineElement>) -> bool {
+          if (Name == "inline-dce") {
+            MPM.addPass(InlineAndDCEPass());
+            return true;
+          }
+          return false;
+        });
+    }
+  };
+}
