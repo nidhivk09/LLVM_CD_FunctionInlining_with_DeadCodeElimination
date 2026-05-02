@@ -42,36 +42,37 @@ jobs:
 
       - name: Build plugin
         run: |
-          echo "=== pwd ==="
+          set -x  # print every command before running it
           pwd
-          echo "=== cmake configure ==="
+          ls -la  # confirm we're in the repo root
+          
           mkdir -p pass-build
+          
           cmake -S . -B pass-build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_BUILD_DIR=/usr/lib/llvm-19
-          echo "=== ninja build ==="
-          cmake --build pass-build
-          echo "=== contents of pass-build ==="
+            -DLLVM_BUILD_DIR=/usr/lib/llvm-19 \
+            || { echo "CMAKE CONFIGURE FAILED"; exit 1; }
+          
+          cmake --build pass-build -- -v \
+            || { echo "NINJA BUILD FAILED"; ls -la pass-build/; exit 1; }
+          
+          echo "=== pass-build contents ==="
           ls -la pass-build/
-          echo "=== find .so ==="
-          find . -name "*.so" 2>/dev/null
+          
+          echo "=== find any .so files ==="
+          find . -name "*.so" 2>/dev/null || echo "none found"
 
       - name: Debug single test
         run: |
-          echo "=== opt version ==="
-          /usr/lib/llvm-19/bin/opt --version
-
-          echo "=== run small_func with full stderr ==="
+          echo "=== checking plugin before opt ==="
+          ls -la pass-build/ || echo "pass-build missing entirely"
+          
           /usr/lib/llvm-19/bin/opt \
             -load-pass-plugin ./pass-build/InlineDCEPass.so \
             -passes=inline-dce \
             -S tests/small_func.ll \
             -o /tmp/out.ll 2>&1
-          echo "exit code: $?"
-
-          echo "=== output file ==="
-          cat /tmp/out.ll 2>/dev/null || echo "no output"
 
       - name: Run test suite
         run: |

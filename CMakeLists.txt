@@ -32,15 +32,20 @@ add_definitions(${LLVM_DEFINITIONS_LIST})
 # ── Plugin target ───────────────────────────────────────────────────────────
 add_library(InlineDCEPass MODULE src/InlinePass.cpp)
 
+target_compile_options(InlineDCEPass PRIVATE
+  -std=c++17
+  -Wall
+  -Wextra
+  -fno-rtti
+  -fPIC
+)
+
+set_target_properties(InlineDCEPass PROPERTIES PREFIX "")
+
 if(APPLE)
-  # macOS: link statically against LLVM component libs
-  llvm_map_components_to_libnames(LLVM_LIBS
-    support core irreader analysis transformutils passes)
-  target_link_libraries(InlineDCEPass PRIVATE ${LLVM_LIBS})
+  set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".dylib")
 else()
-  # Linux: link against the single shared libLLVM.so to avoid
-  # duplicate CommandLine option registration when opt loads the plugin
-  target_link_libraries(InlineDCEPass PRIVATE LLVM)
+  set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".so")
 endif()
 
 
