@@ -81,11 +81,20 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
 
     // ── PHASE 2: INLINE sites ────────────────────────────────────────────
     for (Function *F : ToInline) {
+      // Collect ALL call sites first into a separate vector.
+      // F->users() becomes invalid as soon as the first InlineFunction()
+      // replaces a call instruction — collect eagerly before touching anything.
       SmallVector<CallBase *, 8> Calls;
-      for (User *U : F->users())
-        if (auto *CB = dyn_cast<CallBase>(U)) Calls.push_back(CB);
+      for (Use &U : F->uses()) {
+        auto *CB = dyn_cast<CallBase>(U.getUser());
+        // Only inline direct calls where F is the callee, not a function pointer
+        if (CB && CB->getCalledFunction() == F)
+          Calls.push_back(CB);
+      }
 
       for (CallBase *CB : Calls) {
+        // Guard: the call may have been removed by a prior inline in this loop
+        if (CB->getParent() == nullptr) continue;
         InlineFunctionInfo IFI;
         if (InlineFunction(*CB, IFI).isSuccess())
           Changed = true;
