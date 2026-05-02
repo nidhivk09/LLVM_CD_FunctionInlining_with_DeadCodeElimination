@@ -51,18 +51,25 @@ jobs:
             -DLLVM_BUILD_DIR=/usr/lib/llvm-19
           ninja
 
-      - name: Run test suite
+      - name: Debug single test
         run: |
-          chmod +x run.sh
-          # Run one test manually first with full stderr to see the crash
+          echo "=== opt version ==="
+          /usr/lib/llvm-19/bin/opt --version
+
+          echo "=== run small_func with full stderr ==="
           /usr/lib/llvm-19/bin/opt \
             -load-pass-plugin ./pass-build/InlineDCEPass.so \
             -passes=inline-dce \
             -S tests/small_func.ll \
-            -o /tmp/small_out.ll 2>/tmp/crash.txt || true
-          echo "=== CRASH OUTPUT ==="
-          cat /tmp/crash.txt
-          echo "=== END CRASH ==="
+            -o /tmp/out.ll 2>&1
+          echo "exit code: $?"
+
+          echo "=== output file ==="
+          cat /tmp/out.ll 2>/dev/null || echo "no output"
+
+      - name: Run test suite
+        run: |
+          chmod +x run.sh
           LLVM_BUILD=/usr/lib/llvm-19 ./run.sh
 
       - name: Upload test outputs
