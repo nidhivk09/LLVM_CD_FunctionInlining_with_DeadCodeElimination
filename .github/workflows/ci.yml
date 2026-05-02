@@ -42,16 +42,20 @@ jobs:
 
       - name: Build plugin
         run: |
+          echo "=== pwd ==="
+          pwd
+          echo "=== cmake configure ==="
           mkdir -p pass-build
-          cd pass-build
-          cmake .. \
+          cmake -S . -B pass-build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_BUILD_DIR=/usr/lib/llvm-19
-          ninja
-          cd ..
-          echo "=== checking plugin exists ==="
-          ls -la pass-build/InlineDCEPass.so || echo "PLUGIN NOT BUILT"
+          echo "=== ninja build ==="
+          cmake --build pass-build
+          echo "=== contents of pass-build ==="
+          ls -la pass-build/
+          echo "=== find .so ==="
+          find . -name "*.so" 2>/dev/null
 
       - name: Debug single test
         run: |
