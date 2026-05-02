@@ -38,32 +38,32 @@
 ;   This demonstrates your pass handles unexpected cases gracefully.
 ; ============================================================================
 
-define i32 @funcA(i32 %x) {
+define i32 @is_even(i32 %n) {
 entry:
-  ; funcA is NOT directly recursive (it calls funcB, not itself)
-  ; isDirectlyRecursive(@funcA) returns false ← known limitation!
-  %r = call i32 @funcB(i32 %x)
+  %cmp = icmp eq i32 %n, 0
+  br i1 %cmp, label %yes, label %no
+yes:
+  ret i32 1
+no:
+  %n1 = sub i32 %n, 1
+  %r = call i32 @is_odd(i32 %n1)
   ret i32 %r
 }
 
-define i32 @funcB(i32 %x) {
+define i32 @is_odd(i32 %n) {
 entry:
-  ; funcB is NOT directly recursive (it calls funcA, not itself)
-  ; isDirectlyRecursive(@funcB) returns false ← known limitation!
-  %cmp = icmp sle i32 %x, 0
-  br i1 %cmp, label %done, label %recurse
-
-done:
-  ret i32 1
-
-recurse:
-  %x1 = sub nsw i32 %x, 1
-  %r  = call i32 @funcA(i32 %x1)
+  %cmp = icmp eq i32 %n, 0
+  br i1 %cmp, label %yes, label %no
+yes:
+  ret i32 0
+no:
+  %n1 = sub i32 %n, 1
+  %r = call i32 @is_even(i32 %n1)
   ret i32 %r
 }
 
 define i32 @main() {
 entry:
-  %r = call i32 @funcA(i32 3)
+  %r = call i32 @is_even(i32 4)
   ret i32 %r
 }
