@@ -1,11 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(Assignment12InlineDCE C CXX)
 
-# ── LLVM discovery ──────────────────────────────────────────────────────────
-# Priority order:
-#   1. -DLLVM_BUILD_DIR=... (explicit, used by build.sh and local dev)
-#   2. llvm-config on PATH (used by CI after apt install llvm-18-dev)
-# ────────────────────────────────────────────────────────────────────────────
 set(LLVM_BUILD_DIR "" CACHE PATH "Path to your LLVM build/install directory")
 
 if(NOT "${LLVM_BUILD_DIR}" STREQUAL "")
@@ -13,7 +8,6 @@ if(NOT "${LLVM_BUILD_DIR}" STREQUAL "")
     PATHS "${LLVM_BUILD_DIR}/lib/cmake/llvm"
     NO_DEFAULT_PATH)
 else()
-  # apt install puts cmake files here on Ubuntu
   find_package(LLVM REQUIRED CONFIG
     PATHS "/usr/lib/llvm-19/lib/cmake/llvm"
     NO_DEFAULT_PATH)
@@ -22,9 +16,20 @@ endif()
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
 
 # ── Includes ────────────────────────────────────────────────────────────────
-# LLVM_INCLUDE_DIRS already contains everything we need on both macOS and Linux.
-# The hardcoded macOS source-tree path has been intentionally removed.
 include_directories(${LLVM_INCLUDE_DIRS})
+
+# FIX FOR MAC SOURCE BUILD:
+# If you are building from source, PassPlugin.h is often in 'llvm/include' 
+# within the source tree, not the build tree.
+if(APPLE AND EXISTS "${LLVM_BUILD_DIR}/../llvm-project/llvm/include")
+  include_directories("${LLVM_BUILD_DIR}/../llvm-project/llvm/include")
+endif()
+
+# EXTRA SEARCH PATHS for PassPlugin.h variations
+if(APPLE)
+  include_directories("${LLVM_INCLUDE_DIRS}/llvm/Passes")
+  include_directories("${LLVM_INCLUDE_DIRS}/llvm/Plugins")
+endif()
 
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
@@ -33,11 +38,7 @@ add_definitions(${LLVM_DEFINITIONS_LIST})
 add_library(InlineDCEPass MODULE src/InlinePass.cpp)
 
 target_compile_options(InlineDCEPass PRIVATE
-  -std=c++17
-  -Wall
-  -Wextra
-  -fno-rtti
-  -fPIC
+  -std=c++17 -Wall -Wextra -fno-rtti -fPIC
 )
 
 set_target_properties(InlineDCEPass PROPERTIES PREFIX "")
@@ -48,6 +49,14 @@ else()
   set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".so")
 endif()
 
+# ── Linking ─────────────────────────────────────────────────────────────────
+if(APPLE)
+  llvm_map_components_to_libnames(LLVM_LIBS support core irreader analysis transformutils passes)
+  target_link_libraries(InlineDCEPass PRIVATE ${LLVM_LIBS})
+else()
+  # Use shared LLVM to avoid the "duplicate command line options" crash on Linux CI
+  target_link_libraries(InlineDCEPass PRIVATE LLVM)
+endif()
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 message(STATUS "")

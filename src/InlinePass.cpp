@@ -1,14 +1,17 @@
-//===----------------------------------------------------------------------===//
-// Assignment 12: Function Inlining + Dead Code Elimination
-// File: src/InlinePass.cpp
-// Uses CallGraph as required by the assignment spec.
-//===----------------------------------------------------------------------===//
-
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/Passes/PassPlugin.h"
+
+// Robust PassPlugin Include
+#if __has_include("llvm/Passes/PassPlugin.h")
+#  include "llvm/Passes/PassPlugin.h"
+#elif __has_include("llvm/Plugins/PassPlugin.h")
+#  include "llvm/Plugins/PassPlugin.h"
+#else
+#  include "PassPlugin.h"
+#endif
+
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -24,104 +27,94 @@ namespace {
 struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     bool Changed = false;
-    SmallVector<Function *, 16> ToInline;
+    
+    // We use a local scope to ensure CG is destroyed before we start 
+    // erasing functions from the module in Phase 3.
+    {
+      CallGraph CG(M); 
+      SmallVector<Function *, 16> ToInline;
 
-    // ── Build CallGraph directly (works on all LLVM versions) ───────────
-    // We construct it ourselves rather than using MAM.getResult<CallGraphAnalysis>
-    // to avoid registration differences between LLVM versions.
-    CallGraph CG(M);
+      // ── PHASE 1: IDENTIFY ──────────────────────────────────────────────
+      for (Function &F : M) {
+        if (F.isDeclaration() || F.getName() == "main") continue;
 
-    // ── PHASE 1: IDENTIFY candidates via CallGraph ───────────────────────
-    for (Function &F : M) {
-      if (F.isDeclaration() || F.getName() == "main") continue;
+        CallGraphNode *CGN = CG[&F];
+        if (!CGN) continue;
 
-      CallGraphNode *CGN = CG[&F];
+        bool InCycle = false;
+        SmallPtrSet<CallGraphNode *, 8> Visited;
+        SmallVector<CallGraphNode *, 8> Worklist;
+        
+        for (auto &IT : *CGN) {
+            if (IT.second) Worklist.push_back(IT.second);
+        }
 
-      // 1. Recursion check via CallGraph edges
-      bool Recursive = false;
-      for (auto &CallRecord : *CGN) {
-        if (CallRecord.second == CGN) {
-          Recursive = true;
-          break;
+        while (!Worklist.empty()) {
+            CallGraphNode *N = Worklist.pop_back_val();
+            if (N == CGN) { InCycle = true; break; }
+            if (N && Visited.insert(N).second) {
+                for (auto &Edge : *N) 
+                    if (Edge.second) Worklist.push_back(Edge.second);
+            }
+        }
+
+        if (InCycle) continue;
+
+        unsigned InstCount = 0;
+        for (auto &BB : F)
+          for (auto &I : BB)
+            if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
+
+        unsigned CallCount = 0;
+        for (auto &U : F.uses()) {
+          if (auto *CB = dyn_cast<CallBase>(U.getUser())) {
+              if (CB->getCalledFunction() == &F) CallCount++;
+          }
+        }
+
+        if (CallCount > 0 && (InstCount * CallCount) < INLINE_THRESHOLD) {
+          ToInline.push_back(&F);
         }
       }
-      if (Recursive) {
-        errs() << "  @" << F.getName() << ": recursive -> blocked\n";
-        continue;
+
+      // ── PHASE 2: INLINE ────────────────────────────────────────────────
+      for (Function *F : ToInline) {
+        SmallVector<CallBase *, 8> Calls;
+        for (Use &U : F->uses()) {
+          if (auto *CB = dyn_cast<CallBase>(U.getUser()))
+            if (CB->getCalledFunction() == F) Calls.push_back(CB);
+        }
+
+        for (CallBase *CB : Calls) {
+          InlineFunctionInfo IFI;
+          // We must check if the instruction still has a parent block 
+          // because a previous inline might have deleted the block.
+          if (CB->getParent() && InlineFunction(*CB, IFI).isSuccess()) {
+            Changed = true;
+          }
+        }
       }
+    } // CallGraph CG is destroyed here
 
-      // 2. Cost model — count non-debug instructions
-      unsigned InstCount = 0;
-      for (auto &BB : F)
-        for (auto &I : BB)
-          if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
-
-      // 3. Call frequency — count call sites via CallGraph
-      unsigned CallCount = 0;
-      for (auto &KV : CG) {
-        CallGraphNode *CallerNode = KV.second.get();
-        if (!CallerNode->getFunction()) continue;
-        if (CallerNode->getFunction() == &F) continue;
-        for (auto &CallRecord : *CallerNode)
-          if (CallRecord.second == CGN) CallCount++;
+    // ── PHASE 3: DCE ───────────────────────────────────────────────────
+    bool LocalDeadChanged;
+    do {
+      LocalDeadChanged = false;
+      SmallVector<Function *, 16> DeadPool;
+      for (Function &F : M) {
+        if (F.isDeclaration() || F.getName() == "main") continue;
+        if (F.use_empty()) DeadPool.push_back(&F);
       }
-
-      unsigned Cost = InstCount * CallCount;
-      if (CallCount > 0 && Cost < INLINE_THRESHOLD) {
-        errs() << "  @" << F.getName() << ": cost " << InstCount
-               << "x" << CallCount << "=" << Cost
-               << " < " << INLINE_THRESHOLD << " -> will inline\n";
-        ToInline.push_back(&F);
-      } else if (CallCount > 0) {
-        errs() << "  @" << F.getName() << ": cost " << InstCount
-               << "x" << CallCount << "=" << Cost
-               << " >= " << INLINE_THRESHOLD << " -> skipped\n";
+      for (Function *F : DeadPool) {
+        errs() << "  @" << F->getName() << ": no uses -> deleted\n";
+        F->eraseFromParent();
+        LocalDeadChanged = true;
+        Changed = true;
       }
-    }
-
-    // ── PHASE 2: INLINE sites ────────────────────────────────────────────
-    for (Function *F : ToInline) {
-      // Collect ALL call sites first into a separate vector.
-      // F->users() becomes invalid as soon as the first InlineFunction()
-      // replaces a call instruction — collect eagerly before touching anything.
-      SmallVector<CallBase *, 8> Calls;
-      for (Use &U : F->uses()) {
-        auto *CB = dyn_cast<CallBase>(U.getUser());
-        // Only inline direct calls where F is the callee, not a function pointer
-        if (CB && CB->getCalledFunction() == F)
-          Calls.push_back(CB);
-      }
-
-      for (CallBase *CB : Calls) {
-        // Guard: the call may have been removed by a prior inline in this loop
-        if (CB->getParent() == nullptr) continue;
-        InlineFunctionInfo IFI;
-        if (InlineFunction(*CB, IFI).isSuccess())
-          Changed = true;
-      }
-    }
-
-    // ── PHASE 3: DCE — remove functions with no remaining callers ────────
-    SmallVector<Function *, 16> DeadPool;
-    for (Function &F : M) {
-      if (F.isDeclaration() || F.getName() == "main") continue;
-      if (F.use_empty()) DeadPool.push_back(&F);
-    }
-    for (Function *F : DeadPool) {
-      errs() << "  @" << F->getName() << ": no uses -> deleted\n";
-      F->eraseFromParent();
-      Changed = true;
-    }
-
-    // ── PHASE 4: Remove unreachable basic blocks ──────────────────────────
-    for (Function &F : M)
-      if (!F.isDeclaration())
-        Changed |= removeUnreachableBlocks(F);
+    } while (LocalDeadChanged);
 
     return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
-
-  static bool isRequired() { return true; }
 };
 
 } // end anonymous namespace

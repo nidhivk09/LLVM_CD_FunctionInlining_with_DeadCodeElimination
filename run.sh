@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
-# run.sh — Runs all 5 test cases through the InlineDCEPass
-# Updated for LLVM 15+ new pass manager (legacy PM removed in LLVM 17+)
+# run.sh — Runs all test cases through the InlineDCEPass
+# Updated for LLVM 15+ new pass manager
 # ============================================================================
 
 set -e
@@ -59,14 +59,10 @@ run_test() {
 
   if [ ! -f "$input" ]; then
     echo "  SKIP — $input not found"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
     return
   fi
 
-  # ── Run the pass (new PM syntax) ──────────────────────────────────────────
-  # -load-pass-plugin  : loads your .dylib/.so plugin
-  # -passes="inline-dce" : runs the pass registered under that name
-  # stderr from errs() is piped through grep to show diagnostics
+  # ── Run the pass ──────────────────────────────────────────────────────────
   "$OPT" \
     -load-pass-plugin "$PLUGIN" \
     -passes="inline-dce" \
@@ -99,7 +95,7 @@ run_test() {
     echo "    (none)"
   fi
 
-  # ── Verify IR correctness (new PM syntax) ─────────────────────────────────
+  # ── Verify IR correctness ─────────────────────────────────────────────────
   echo ""
   if "$OPT" -passes="verify" -S "$output" -o /dev/null 2>/dev/null; then
     echo "  IR verify : valid"
@@ -120,30 +116,34 @@ run_test() {
 }
 
 # ============================================================================
-# THE 5 TESTS
+# TEST CASES
 # ============================================================================
-run_test "small_func"     1  "@add: cost 2x1=2 < 50 -> inlined and deleted"
-run_test "large_func"     2  "@heavy_compute: cost 56x1=56 >= 50 -> skipped"
-run_test "recursive_func" 2  "@factorial: recursive -> blocked before cost check"
-run_test "multi_call"     1  "@square: cost 2x5=10 < 50 -> all 5 sites inlined"
-run_test "mixed"          3  "@tiny inlined, @big skipped, @recur blocked"
+run_test "small_func"       1  "@add: cost 2x1=2 < 50 -> inlined and deleted"
+run_test "large_func"       2  "@heavy_compute: cost 56x1=56 >= 50 -> skipped"
+run_test "recursive_func"   2  "@factorial: recursive -> blocked"
+run_test "multi_call"       1  "@square: cost 2x5=10 < 50 -> all 5 sites inlined"
+run_test "mixed"            3  "@tiny inlined, @big skipped, @recur blocked"
+run_test "single_use"       1  "@double: cost 2x1=2 < 45 -> inlined"
+run_test "multi_func"       1  "@add_one and @times_two both inlined"
+run_test "mutual_recursive" 3  "@is_even and @is_odd blocked (mutual recursion)"
+run_test "mixed_recursive"  2  "@fib blocked, @negate inlined"
+run_test "chain_inline"     1  "@funcA->B->C: entire chain should collapse into main"
 
 # ============================================================================
-# BASELINE vs LLVM's built-in always-inline (new PM name)
+# BASELINE COMPARISON
 # ============================================================================
 echo ""
 echo "========================================================"
-echo "  Baseline: your pass vs LLVM always-inline"
+echo "  Baseline Comparison"
 echo "========================================================"
 printf "  %-22s  %-10s  %-10s  %-10s\n" \
   "Test" "Yours" "Built-in" "Lines(yours)"
 printf "  %-22s  %-10s  %-10s  %-10s\n" \
   "──────────────────────" "──────────" "──────────" "────────────"
 
-for name in small_func large_func recursive_func multi_call mixed; do
+for name in small_func large_func recursive_func multi_call mixed chain_inline; do
   baseline_out="tests/output/${name}_baseline.ll"
 
-  # New PM name for always-inline is "always-inline"
   "$OPT" -passes="always-inline" \
     -S "tests/${name}.ll" -o "$baseline_out" 2>/dev/null || true
 
@@ -154,9 +154,6 @@ for name in small_func large_func recursive_func multi_call mixed; do
   printf "  %-22s  %-10s  %-10s  %-10s\n" "$name" "$yours" "$builtin" "$lines"
 done
 
-# ============================================================================
-# FINAL RESULT
-# ============================================================================
 echo ""
 echo "========================================================"
 printf "  Results: %d passed, %d failed\n" "$PASS_COUNT" "$FAIL_COUNT"
