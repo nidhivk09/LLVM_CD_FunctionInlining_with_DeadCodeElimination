@@ -7,7 +7,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"      // ModuleAnalysisManager is defined here
-#include "llvm/Plugins/PassPlugin.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Passes/PassPlugin.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
