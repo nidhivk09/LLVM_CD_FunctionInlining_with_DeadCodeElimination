@@ -35,23 +35,19 @@ add_library(InlineDCEPass MODULE src/InlinePass.cpp)
 llvm_map_components_to_libnames(LLVM_LIBS
   support core irreader analysis transformutils passes)
 
-target_link_libraries(InlineDCEPass PRIVATE ${LLVM_LIBS})
-
-target_compile_options(InlineDCEPass PRIVATE
-  -std=c++17
-  -Wall
-  -Wextra
-  -fno-rtti
-  -fPIC
-)
-
-set_target_properties(InlineDCEPass PROPERTIES PREFIX "")
-
+# On macOS the plugin needs explicit linking because dyld requires it.
+# On Linux, opt already has all LLVM symbols loaded — linking them again
+# into the .so causes duplicate CommandLine option registration and abort().
 if(APPLE)
-  set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".dylib")
+  target_link_libraries(InlineDCEPass PRIVATE ${LLVM_LIBS})
 else()
-  set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".so")
+  # Linux: mark LLVM symbols as coming from the host process, not the .so
+  target_link_libraries(InlineDCEPass PRIVATE)
+  set_target_properties(InlineDCEPass PROPERTIES
+    LINK_FLAGS "-Wl,--allow-shlib-undefined"
+  )
 endif()
+
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 message(STATUS "")
