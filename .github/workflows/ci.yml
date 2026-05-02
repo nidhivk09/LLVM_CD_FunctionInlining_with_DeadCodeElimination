@@ -42,14 +42,16 @@ jobs:
 
       - name: Build plugin
         run: |
-          find /usr/lib/llvm-19/include -name "PassPlugin.h" 2>/dev/null || echo "still missing"
-          chmod +x build.sh
-          mkdir -p pass-build && cd pass-build
+          mkdir -p pass-build
+          cd pass-build
           cmake .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_BUILD_DIR=/usr/lib/llvm-19
           ninja
+          cd ..
+          echo "=== checking plugin exists ==="
+          ls -la pass-build/InlineDCEPass.so || echo "PLUGIN NOT BUILT"
 
       - name: Debug single test
         run: |
