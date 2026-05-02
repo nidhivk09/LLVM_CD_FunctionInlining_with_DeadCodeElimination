@@ -28,22 +28,31 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update -q
-          sudo apt-get install -y llvm-18-dev clang-18 ninja-build cmake
+          sudo apt-get install -y \
+            llvm-18 \
+            llvm-18-dev \
+            llvm-18-tools \
+            libllvm18 \
+            clang-18 \
+            ninja-build \
+            cmake
 
       - name: Ensure tools on PATH (cache hit path)
         run: sudo apt-get install -y ninja-build cmake 2>/dev/null || true
 
       - name: Build plugin
-        env:
-          LLVM_BUILD: /usr/lib/llvm-18
         run: |
-          # build.sh expects bin/opt — create a shim
-          mkdir -p /usr/lib/llvm-18/bin
-          ln -sf /usr/bin/opt-18 /usr/lib/llvm-18/bin/opt || true
-          ln -sf /usr/bin/llvm-config-18 /usr/lib/llvm-18/bin/llvm-config || true
+          # Verify the header exists so failures are obvious
+          ls /usr/lib/llvm-18/include/llvm/Plugins/PassPlugin.h || \
+            (echo "PassPlugin.h missing — find it:" && \
+             find /usr/lib/llvm-18 -name "PassPlugin.h" 2>/dev/null && exit 1)
 
           chmod +x build.sh
-          LLVM_BUILD=/usr/lib/llvm-18 ./build.sh
+          mkdir -p pass-build && cd pass-build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          ninja
 
       - name: Run test suite
         env:
