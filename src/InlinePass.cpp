@@ -1,13 +1,13 @@
 //===----------------------------------------------------------------------===//
 // Assignment 12: Function Inlining + Dead Code Elimination
 // File: src/InlinePass.cpp
+// Uses CallGraph as required by the assignment spec.
 //===----------------------------------------------------------------------===//
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/PassManager.h"      // ModuleAnalysisManager is defined here
-#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -26,8 +26,10 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
     bool Changed = false;
     SmallVector<Function *, 16> ToInline;
 
-    // Get the CallGraph from the analysis manager
-    CallGraph &CG = MAM.getResult<CallGraphAnalysis>(M);
+    // ── Build CallGraph directly (works on all LLVM versions) ───────────
+    // We construct it ourselves rather than using MAM.getResult<CallGraphAnalysis>
+    // to avoid registration differences between LLVM versions.
+    CallGraph CG(M);
 
     // ── PHASE 1: IDENTIFY candidates via CallGraph ───────────────────────
     for (Function &F : M) {
@@ -35,10 +37,10 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
 
       CallGraphNode *CGN = CG[&F];
 
-      // 1. Recursion check
+      // 1. Recursion check via CallGraph edges
       bool Recursive = false;
       for (auto &CallRecord : *CGN) {
-        if (CallRecord.second == CGN) { 
+        if (CallRecord.second == CGN) {
           Recursive = true;
           break;
         }
@@ -48,22 +50,20 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
         continue;
       }
 
-      // 2. Cost model
+      // 2. Cost model — count non-debug instructions
       unsigned InstCount = 0;
-      for (auto &BB : F) {
-        for (auto &I : BB) {
+      for (auto &BB : F)
+        for (auto &I : BB)
           if (!isa<DbgInfoIntrinsic>(&I)) InstCount++;
-        }
-      }
 
-      // 3. Call frequency via CallGraph
+      // 3. Call frequency — count call sites via CallGraph
       unsigned CallCount = 0;
       for (auto &KV : CG) {
         CallGraphNode *CallerNode = KV.second.get();
-        if (!CallerNode->getFunction() || CallerNode->getFunction() == &F) continue;
-        for (auto &CallRecord : *CallerNode) {
+        if (!CallerNode->getFunction()) continue;
+        if (CallerNode->getFunction() == &F) continue;
+        for (auto &CallRecord : *CallerNode)
           if (CallRecord.second == CGN) CallCount++;
-        }
       }
 
       unsigned Cost = InstCount * CallCount;
@@ -92,18 +92,22 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
       }
     }
 
-    // ── PHASE 3: DCE (Safe Deletion) ─────────────────────────────────────
+    // ── PHASE 3: DCE — remove functions with no remaining callers ────────
     SmallVector<Function *, 16> DeadPool;
     for (Function &F : M) {
       if (F.isDeclaration() || F.getName() == "main") continue;
       if (F.use_empty()) DeadPool.push_back(&F);
     }
-
     for (Function *F : DeadPool) {
       errs() << "  @" << F->getName() << ": no uses -> deleted\n";
       F->eraseFromParent();
       Changed = true;
     }
+
+    // ── PHASE 4: Remove unreachable basic blocks ──────────────────────────
+    for (Function &F : M)
+      if (!F.isDeclaration())
+        Changed |= removeUnreachableBlocks(F);
 
     return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
@@ -118,12 +122,6 @@ llvmGetPassPluginInfo() {
   return {
     LLVM_PLUGIN_API_VERSION, "InlineDCEPass", LLVM_VERSION_STRING,
     [](PassBuilder &PB) {
-      // REGISTER ANALYSIS HERE
-      PB.registerAnalysisRegistrationCallback(
-        [](ModuleAnalysisManager &MAM) {
-          MAM.registerPass([&] { return CallGraphAnalysis(); });
-        });
-
       PB.registerPipelineParsingCallback(
         [](StringRef Name, ModulePassManager &MPM,
            ArrayRef<PassBuilder::PipelineElement>) -> bool {
