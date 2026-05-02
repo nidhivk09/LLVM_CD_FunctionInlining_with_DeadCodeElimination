@@ -1,32 +1,36 @@
 cmake_minimum_required(VERSION 3.20)
 project(Assignment12InlineDCE C CXX)
 
-set(LLVM_BUILD_DIR "" CACHE PATH "Path to your LLVM build directory")
+# ── LLVM discovery ──────────────────────────────────────────────────────────
+# Priority order:
+#   1. -DLLVM_BUILD_DIR=... (explicit, used by build.sh and local dev)
+#   2. llvm-config on PATH (used by CI after apt install llvm-18-dev)
+# ────────────────────────────────────────────────────────────────────────────
+set(LLVM_BUILD_DIR "" CACHE PATH "Path to your LLVM build/install directory")
 
-if("${LLVM_BUILD_DIR}" STREQUAL "")
-  message(FATAL_ERROR
-    "LLVM_BUILD_DIR is not set.\n"
-    "Run cmake with: -DLLVM_BUILD_DIR=\"/path/to/your/llvm-workspace/build\"\n"
-    "Or use the provided build.sh script which sets this automatically.")
+if(NOT "${LLVM_BUILD_DIR}" STREQUAL "")
+  # Explicit path — local dev / build.sh workflow
+  find_package(LLVM REQUIRED CONFIG
+    PATHS "${LLVM_BUILD_DIR}/lib/cmake/llvm"
+    NO_DEFAULT_PATH)
+else()
+  # Fallback — let CMake find LLVM via system paths (CI apt install)
+  find_package(LLVM REQUIRED CONFIG)
 endif()
-
-find_package(LLVM REQUIRED CONFIG
-  PATHS "${LLVM_BUILD_DIR}/lib/cmake/llvm"
-  NO_DEFAULT_PATH)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
 
-# Add the specific source directory where Plugins/PassPlugin.h lives
-include_directories(
-    ${LLVM_INCLUDE_DIRS}
-    "/Volumes/Nayu 1TB/llvm-workspace/llvm-project/llvm/include"
-)
+# ── Includes ────────────────────────────────────────────────────────────────
+# LLVM_INCLUDE_DIRS already contains everything we need on both macOS and Linux.
+# The hardcoded macOS source-tree path has been intentionally removed.
+include_directories(${LLVM_INCLUDE_DIRS})
+
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 
+# ── Plugin target ───────────────────────────────────────────────────────────
 add_library(InlineDCEPass MODULE src/InlinePass.cpp)
 
-# Added 'passes' — required for PassPlugin.h / PassBuilder in LLVM 15+
 llvm_map_components_to_libnames(LLVM_LIBS
   support core irreader analysis transformutils passes)
 
@@ -42,17 +46,18 @@ target_compile_options(InlineDCEPass PRIVATE
 
 set_target_properties(InlineDCEPass PROPERTIES PREFIX "")
 
-# Fixed: was duplicated, and needs to be conditional per OS
 if(APPLE)
   set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".dylib")
 else()
   set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".so")
 endif()
 
+# ── Summary ─────────────────────────────────────────────────────────────────
 message(STATUS "")
 message(STATUS "=== Build configuration ===")
 message(STATUS "  LLVM version : ${LLVM_PACKAGE_VERSION}")
 message(STATUS "  LLVM dir     : ${LLVM_DIR}")
+message(STATUS "  LLVM includes: ${LLVM_INCLUDE_DIRS}")
 message(STATUS "  Build type   : ${CMAKE_BUILD_TYPE}")
 if(APPLE)
   message(STATUS "  Output       : pass-build/InlineDCEPass.dylib  (macOS)")

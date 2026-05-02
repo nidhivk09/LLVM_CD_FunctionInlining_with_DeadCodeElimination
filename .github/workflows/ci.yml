@@ -1,0 +1,60 @@
+name: Build and Test InlineDCEPass
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Cache the LLVM installation so repeat runs are fast (~1 min vs ~3 min)
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /usr/lib/llvm-18
+          key: llvm-18-ubuntu-${{ runner.os }}
+
+      - name: Install LLVM 18
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update -q
+          sudo apt-get install -y llvm-18-dev clang-18 ninja-build cmake
+
+      - name: Ensure tools on PATH (cache hit path)
+        run: sudo apt-get install -y ninja-build cmake 2>/dev/null || true
+
+      - name: Build plugin
+        env:
+          LLVM_BUILD: /usr/lib/llvm-18
+        run: |
+          # build.sh expects bin/opt — create a shim
+          mkdir -p /usr/lib/llvm-18/bin
+          ln -sf /usr/bin/opt-18 /usr/lib/llvm-18/bin/opt || true
+          ln -sf /usr/bin/llvm-config-18 /usr/lib/llvm-18/bin/llvm-config || true
+
+          chmod +x build.sh
+          LLVM_BUILD=/usr/lib/llvm-18 ./build.sh
+
+      - name: Run test suite
+        env:
+          LLVM_BUILD: /usr/lib/llvm-18
+        run: |
+          chmod +x run.sh
+          LLVM_BUILD=/usr/lib/llvm-18 ./run.sh
+
+      - name: Upload test outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-outputs
+          path: tests/output/
