@@ -19,21 +19,21 @@ jobs:
         id: cache-llvm
         uses: actions/cache@v4
         with:
-          path: /usr/lib/llvm-18
-          key: llvm-18-ubuntu-${{ runner.os }}
+          path: /usr/lib/llvm-19
+          key: llvm-19-ubuntu-${{ runner.os }}
 
-      - name: Install LLVM 18
+      - name: Install LLVM 19
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update -q
           sudo apt-get install -y \
-            llvm-18 \
-            llvm-18-dev \
-            llvm-18-tools \
-            libllvm18 \
-            clang-18 \
+            llvm-19 \
+            llvm-19-dev \
+            llvm-19-tools \
+            libllvm19 \
+            clang-19 \
             ninja-build \
             cmake
 
@@ -42,24 +42,19 @@ jobs:
 
       - name: Build plugin
         run: |
-          # Verify the header exists so failures are obvious
-          ls /usr/lib/llvm-18/include/llvm/Plugins/PassPlugin.h || \
-            (echo "PassPlugin.h missing — find it:" && \
-             find /usr/lib/llvm-18 -name "PassPlugin.h" 2>/dev/null && exit 1)
-
+          find /usr/lib/llvm-19/include -name "PassPlugin.h" 2>/dev/null || echo "still missing"
           chmod +x build.sh
           mkdir -p pass-build && cd pass-build
           cmake .. \
             -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_BUILD_DIR=/usr/lib/llvm-19
           ninja
 
       - name: Run test suite
-        env:
-          LLVM_BUILD: /usr/lib/llvm-18
         run: |
           chmod +x run.sh
-          LLVM_BUILD=/usr/lib/llvm-18 ./run.sh
+          LLVM_BUILD=/usr/lib/llvm-19 ./run.sh
 
       - name: Upload test outputs
         if: always()

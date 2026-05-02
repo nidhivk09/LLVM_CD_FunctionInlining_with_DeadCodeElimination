@@ -9,13 +9,14 @@ project(Assignment12InlineDCE C CXX)
 set(LLVM_BUILD_DIR "" CACHE PATH "Path to your LLVM build/install directory")
 
 if(NOT "${LLVM_BUILD_DIR}" STREQUAL "")
-  # Explicit path — local dev / build.sh workflow
   find_package(LLVM REQUIRED CONFIG
     PATHS "${LLVM_BUILD_DIR}/lib/cmake/llvm"
     NO_DEFAULT_PATH)
 else()
-  # Fallback — let CMake find LLVM via system paths (CI apt install)
-  find_package(LLVM REQUIRED CONFIG)
+  # apt install puts cmake files here on Ubuntu
+  find_package(LLVM REQUIRED CONFIG
+    PATHS "/usr/lib/llvm-19/lib/cmake/llvm"
+    NO_DEFAULT_PATH)
 endif()
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
