@@ -4,9 +4,8 @@
 
 This document describes the design decisions behind our LLVM ModulePass that
 performs function inlining followed by dead code elimination. The pass
-implements a cost-heuristic-based inlining strategy combined with three
-safety guards: declaration skipping, variadic argument checking, and
-recursive function detection.
+implements a cost-heuristic-based inlining strategy combined with two
+safety guards: declaration skipping, and cycle/recursive function detection.
 
 ---
 
@@ -59,7 +58,7 @@ predicts the binary size growth from inlining:
 | @heavy   | 56          | 1     | 56   | ~56 instructions added |
 | @compute | 10          | 8     | 80   | ~80 instructions added |
 
-With threshold = 50, the first two are inlined and the last two are skipped.
+With threshold = 45, the first two are inlined and the last two are skipped.
 This gives us predictable binary size control.
 
 ---
@@ -71,9 +70,8 @@ But the body itself contains a call to the same function. If we pasted that
 too, we would have another call to paste, and so on — creating an infinite
 expansion at compile time.
 
-Our `isDirectlyRecursive()` check runs first (before cost analysis) to catch
-this case. It scans the function body for any `CallInst` whose target is the
-function itself. If found, the function is blocked immediately.
+Our cycle detection using a CallGraph Worklist runs first (before cost analysis) to catch
+this case. It walks the call graph starting from the function to see if it can reach itself. If a cycle is found, the function is blocked immediately.
 
 ---
 
@@ -97,24 +95,16 @@ a profiling infrastructure. Out of scope for this assignment.
 
 ---
 
-## 6. Known Limitation: Mutual Recursion
+## 6. Cycle Detection: Handling Mutual Recursion
 
-Our `isDirectlyRecursive()` only detects **direct** self-recursion (function A
-calling itself). It does NOT detect **mutual** recursion, where function A
-calls function B and function B calls function A.
+A simple direct recursion check (checking if function A calls itself) is insufficient for complex programs. It does NOT detect **mutual** recursion, where function A calls function B and function B calls function A.
 
-In the mutual recursion case, neither function is flagged as recursive. Both
-are queued for inlining. When `InlineFunction()` attempts to inline them, it
-typically returns a failure result (detecting the circular dependency at the
-IR level) rather than crashing.
+To properly detect all forms of recursion (including mutual recursion), our pass uses the LLVM `CallGraph` analysis:
+1. We retrieve the `CallGraphNode` for the current function.
+2. We run a worklist-based search following the outgoing call edges.
+3. If the search ever re-visits the starting function's node, a cycle exists.
 
-To properly detect mutual recursion, we would need to:
-1. Build a `CallGraph` over the entire module
-2. Run a Depth-First Search from each function
-3. If the DFS ever re-visits the starting function, a cycle exists
-
-This is more complex and is documented as a known limitation. The `mutual_recursive.ll`
-test case in `tests/` demonstrates the graceful failure behavior.
+Because of this robust detection mechanism, mutual recursion is correctly identified and blocked. The `mutual_recursive.ll` test case in `tests/` demonstrates that mutually recursive functions are properly blocked from inlining.
 
 ---
 
@@ -124,11 +114,11 @@ test case in `tests/` demonstrates the graceful failure behavior.
 |-----------|---------------|----------------|-----------------|-----------|
 | 1         | Skip          | Skip           | Skip            | Too conservative, no inlining |
 | 10        | Inline        | Skip           | Skip            | Only the smallest utilities inline |
-| 50 (default) | Inline    | Skip           | Inline          | Good balance |
+| 45 (default) | Inline    | Skip           | Inline          | Good balance |
 | 100       | Inline        | Inline         | Inline          | Aggressive, binary grows more |
 | 500       | Inline        | Inline         | Inline          | Very aggressive, potential size explosion |
 
-The default threshold of 50 was chosen because it correctly handles the
+The default threshold of 45 was chosen because it correctly handles the
 5 test cases in this assignment while representing a realistic production
 trade-off between binary size and runtime performance.
 

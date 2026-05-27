@@ -118,10 +118,10 @@ run_test() {
 # ============================================================================
 # TEST CASES
 # ============================================================================
-run_test "small_func"       1  "@add: cost 2x1=2 < 50 -> inlined and deleted"
-run_test "large_func"       2  "@heavy_compute: cost 56x1=56 >= 50 -> skipped"
+run_test "small_func"       1  "@add: cost 2x1=2 < 45 -> inlined and deleted"
+run_test "large_func"       2  "@heavy_compute: cost 56x1=56 >= 45 -> skipped"
 run_test "recursive_func"   2  "@factorial: recursive -> blocked"
-run_test "multi_call"       1  "@square: cost 2x5=10 < 50 -> all 5 sites inlined"
+run_test "multi_call"       1  "@square: cost 2x5=10 < 45 -> all 5 sites inlined"
 run_test "mixed"            3  "@tiny inlined, @big skipped, @recur blocked"
 run_test "single_use"       1  "@double: cost 2x1=2 < 45 -> inlined"
 run_test "multi_func"       1  "@add_one and @times_two both inlined"

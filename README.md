@@ -43,7 +43,7 @@ Output: `pass-build/InlineDCEPass.dylib` (macOS) or `.so` (Linux).
 ./run.sh
 ```
 
-Expected result: **5/5 PASS**.
+Expected result: **10/10 PASS**.
 
 ---
 
@@ -54,34 +54,25 @@ Expected result: **5/5 PASS**.
 LLVM="/Volumes/..."
 
 "$LLVM/bin/opt" \
-  --enable-new-pm=0 \
-  -load "./pass-build/InlineDCEPass.dylib" \
-  -inline-dce -S \
-  tests/small_func.ll \
+  -load-pass-plugin "./pass-build/InlineDCEPass.dylib" \
+  -passes="inline-dce" \
+  -S tests/small_func.ll \
   -o /tmp/out.ll
 
 cat /tmp/out.ll
 ```
 
-> **Why `--enable-new-pm=0`?**  
-> LLVM 17+ defaults to the "new pass manager." Our pass uses the
-> **legacy pass manager** API (`ModulePass` / `RegisterPass`). Without
-> this flag, `opt` ignores the `-load` plugin entirely and the pass
-> never runs — no error, just no transformation. This flag switches opt
-> back to the legacy manager where `RegisterPass<>` works correctly.
-
 ---
 
 ## What the Pass Does
 
-The pass runs 4 phases on any `.ll` file:
+The pass runs 3 phases on any `.ll` file:
 
 | Phase | What happens |
 |-------|-------------|
-| **1 — Analyze** | For each function: check for recursion, count instructions, find call sites, compute `cost = instrs × sites` |
-| **2 — Inline** | Call `InlineFunction()` at every approved site (`cost < 50`) |
-| **3 — Delete** | Erase original functions that now have zero callers |
-| **4 — Clean up** | Remove unreachable basic blocks via `removeUnreachableBlocks()` |
+| **1 — Analyze** | For each function: check for recursion/cycles, count instructions, compute `cost = instrs × call_count` |
+| **2 — Inline** | Call `InlineFunction()` at every approved call site (`cost < 45`) |
+| **3 — Delete** | Erase dead functions that have zero callers (repeats until stable) |
 
 ---
 
@@ -91,9 +82,14 @@ The pass runs 4 phases on any `.ll` file:
 |------|-------------|--------------|-----|
 | `small_func` | 2 | 1 | `@add` (cost 2) inlined and deleted |
 | `large_func` | 2 | 2 | `@heavy_compute` (cost 56) skipped |
-| `recursive_func` | 2 | 2 | `@factorial` blocked (direct recursion) |
+| `recursive_func` | 2 | 2 | `@factorial` blocked (cycle detected) |
 | `multi_call` | 2 | 1 | `@square` inlined at all 5 sites |
 | `mixed` | 4 | 3 | `@tiny` inlined; `@big` skipped; `@recur` blocked |
+| `single_use` | 2 | 1 | `@double` inlined and deleted |
+| `multi_func` | 3 | 1 | `@add_one` and `@times_two` both inlined |
+| `mutual_recursive` | 3 | 3 | `@is_even` and `@is_odd` blocked (cycle detected) |
+| `mixed_recursive` | 3 | 2 | `@fib` blocked, `@negate` inlined |
+| `chain_inline` | 4 | 1 | `@funcA->B->C` collapsed into main |
 
 ---
 
@@ -123,7 +119,7 @@ run.sh                  Run all tests
 ## Troubleshooting
 
 **"Pass not found" or no transformation happens**  
-→ You forgot `--enable-new-pm=0`. Add it before `-load`.
+→ Ensure you are using `-load-pass-plugin` and `-passes="inline-dce"` with the new pass manager.
 
 **"opt not found" or cmake fails**  
 → Check `DEFAULT_LLVM_BUILD` in `build.sh`. It must point to the directory

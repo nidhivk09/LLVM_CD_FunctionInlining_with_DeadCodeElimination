@@ -4,28 +4,28 @@
 
 | API | Header | Purpose in our pass |
 |-----|--------|---------------------|
-| `ModulePass` | `llvm/Pass.h` | Base class; gives us `runOnModule(Module &M)` |
-| `RegisterPass<T>` | `llvm/Pass.h` | Registers pass with opt's `-inline-dce` flag |
+| `PassInfoMixin<T>` | `llvm/IR/PassManager.h` | Base class for New Pass Manager passes |
+| `PreservedAnalyses` | `llvm/IR/PassManager.h` | Return type of `run` indicating what analyses are still valid |
+| `ModuleAnalysisManager`| `llvm/IR/PassManager.h` | Provides analyses |
+| `llvmGetPassPluginInfo`| `llvm/Passes/PassPlugin.h` | Registers pass with opt's `-passes="inline-dce"` flag |
 | `Module` | `llvm/IR/Module.h` | The entire .ll file; iterate with `for (Function &F : M)` |
 | `Function` | `llvm/IR/Function.h` | Represents one function definition |
 | `Function::isDeclaration()` | `llvm/IR/Function.h` | Returns true if no body (external prototype) |
-| `Function::isVarArg()` | `llvm/IR/Function.h` | True for variadic functions like printf |
 | `Function::getName()` | `llvm/IR/Function.h` | Returns the function's name string |
 | `Function::use_empty()` | `llvm/IR/Function.h` | True if nothing in the module calls this function |
 | `Function::eraseFromParent()` | `llvm/IR/Function.h` | Deletes function from module |
 | `BasicBlock` | `llvm/IR/BasicBlock.h` | One BB = one entry, one exit, sequential instructions |
-| `BasicBlock::size()` | `llvm/IR/BasicBlock.h` | Number of instructions in the block |
+| `isa<DbgInfoIntrinsic>` | `llvm/IR/IntrinsicInst.h` | True if the instruction is debug metadata |
 | `Instruction` | `llvm/IR/Instructions.h` | One IR instruction (%x = add i32 ...) |
-| `dyn_cast<CallInst>` | `llvm/IR/Instructions.h` | Safe RTTI-less cast to CallInst, returns nullptr on failure |
-| `CallInst::getCalledFunction()` | `llvm/IR/Instructions.h` | Returns Function* for direct calls, nullptr for indirect |
+| `dyn_cast<CallBase>` | `llvm/IR/Instructions.h` | Safe RTTI-less cast to CallBase, returns nullptr on failure |
+| `CallBase::getCalledFunction()` | `llvm/IR/Instructions.h` | Returns Function* for direct calls, nullptr for indirect |
 | `InlineFunction(CI, IFI)` | `llvm/Transforms/Utils/Cloning.h` | Does the actual inlining — replaces call with callee body |
 | `InlineFunctionInfo` | `llvm/Transforms/Utils/Cloning.h` | Output struct from InlineFunction() |
 | `InlineResult::isSuccess()` | `llvm/Transforms/Utils/Cloning.h` | Did the inlining succeed? |
 | `InlineResult::getFailureReason()` | `llvm/Transforms/Utils/Cloning.h` | Why did inlining fail? |
-| `removeUnreachableBlocks(F)` | `llvm/Transforms/Utils/Local.h` | Deletes unreachable basic blocks from a function |
 | `SmallVector<T, N>` | `llvm/ADT/SmallVector.h` | Stack-allocated vector for small lists |
 | `raw_ostream / errs()` | `llvm/Support/raw_ostream.h` | LLVM's stderr output stream |
-| `AnalysisUsage` | `llvm/Pass.h` | Declares what analyses the pass uses/preserves |
+| `CallGraph` | `llvm/Analysis/CallGraph.h` | Used to detect cycles and dependencies |
 
 ---
 
@@ -35,30 +35,30 @@
 opt loads InlineDCEPass.so
          │
          ▼
-opt calls InlineAndDCEPass::runOnModule(Module &M)
+opt calls InlineAndDCEPass::run(Module &M, ModuleAnalysisManager &MAM)
          │
          ├─ Phase 1: ANALYZE ──────────────────────────────────────────────
          │     for each Function F in M:
-         │       skip if: declaration, variadic, main, recursive
-         │       compute: instruction_count = Σ BB.size() for BB in F
-         │       find:    call_sites = all CallInsts pointing to F
-         │       compute: cost = instruction_count × |call_sites|
+         │       skip if: declaration, main, or part of a cycle (via CallGraph)
+         │       compute: instruction_count = non-debug instructions
+         │       find:    call_count = |call_sites pointing to F|
+         │       compute: cost = instruction_count × call_count
          │       if cost < THRESHOLD → add to ToInline list
          │
          ├─ Phase 2: INLINE ──────────────────────────────────────────────
          │     for each Candidate in ToInline:
-         │       for each CallInst CI in Candidate.CallSites:
+         │       find all CallInsts CI pointing to Candidate
+         │       for each CI:
          │         InlineFunction(CI, IFI)  ← pastes callee body here
-         │         CI is now invalid/gone
          │
-         ├─ Phase 3: DELETE ──────────────────────────────────────────────
-         │     for each Candidate in ToInline:
-         │       if Candidate.Callee->use_empty():
-         │         Callee->eraseFromParent()  ← removed from module
-         │
-         └─ Phase 4: CLEANUP ─────────────────────────────────────────────
-               for each Function F in M:
-                 removeUnreachableBlocks(F)
+         └─ Phase 3: DELETE ──────────────────────────────────────────────
+               do:
+                 local_changed = false
+                 for each Function F in M:
+                   if F.use_empty() (and not main/decl):
+                     F.eraseFromParent()  ← removed from module
+                     local_changed = true
+               while local_changed
 ```
 
 ---
@@ -134,50 +134,26 @@ compilation settings.
 
 ```
 WRONG (crashes):
-  for (Instruction &I : BB) {
-    if (auto *CI = dyn_cast<CallInst>(&I)) {
-      InlineFunction(*CI, IFI);  // ← CI and the BB's instruction list
-                                  //   are modified here, invalidating
-                                  //   the range-based for iterator!
+  for (Use &U : F->uses()) {
+    if (auto *CB = dyn_cast<CallBase>(U.getUser())) {
+      InlineFunction(*CB, IFI);  // ← modifies the use list while iterating it!
     }
   }
 
 RIGHT (safe):
   // First pass: collect all call sites
-  SmallVector<CallInst*, 8> ToProcess;
-  for (Instruction &I : BB)
-    if (auto *CI = dyn_cast<CallInst>(&I))
-      ToProcess.push_back(CI);
+  SmallVector<CallBase *, 8> Calls;
+  for (Use &U : F->uses()) {
+    if (auto *CB = dyn_cast<CallBase>(U.getUser()))
+      if (CB->getCalledFunction() == F) Calls.push_back(CB);
+  }
 
   // Second pass: modify safely
-  for (CallInst *CI : ToProcess)
-    InlineFunction(*CI, IFI);  // ← no active iterator over BB's list
+  for (CallBase *CB : Calls) {
+    if (CB->getParent())
+      InlineFunction(*CB, IFI);
+  }
 ```
 
-Our `findCallSites()` function performs the collection. The inlining loop in
-Phase 2 then processes the collected `SmallVector<CallInst*>`. The two loops
-are entirely separate, making iterator invalidation impossible.
+The inlining loop in Phase 2 performs this exact collection first. It stores all `CallBase` pointers in a `SmallVector`. The subsequent loop calls `InlineFunction` safely because it is iterating over the vector, not the live use list.
 
----
-
-## 7. Dead Block Elimination Details
-
-`removeUnreachableBlocks(F)` works by:
-
-1. Starting at the function's entry block
-2. Running a reachability analysis (similar to BFS/DFS over the CFG)
-3. Marking every block that can be reached from the entry by following
-   possible branch targets
-4. Any block NOT in the reachable set is "dead" — it cannot execute
-5. Dead blocks are removed, and any PHI nodes in their successors that
-   reference them are updated
-
-After inlining, dead blocks typically arise when a conditional branch
-in the callee becomes a constant branch in the caller. For example, if
-the callee had `br i1 %cond, label %if, label %else` and the constant
-propagation pass (not us) resolves `%cond` to `false`, then the `%if`
-block becomes unreachable.
-
-Even without constant propagation, inlining can create structural dead
-blocks (e.g., a "pre-return" block that has no predecessors after the
-call site is replaced).
