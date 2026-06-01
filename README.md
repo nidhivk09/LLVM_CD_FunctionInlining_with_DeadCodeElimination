@@ -111,35 +111,27 @@ The pass runs 3 phases on any `.ll` file:
 
 ### 1. Terminal — Build
 Run `./build.sh`, showing the successful build output ending with `Build successful! Plugin: ./pass-build/InlineDCEPass.dylib`.
-![Terminal — Build](docs/Screenshots/Terminal%20-%20Build%20Run.png)
 
 ### 2. Terminal — Full Test Run
 Run `./run.sh`, showing all 10 tests passing with the baseline comparison table at the bottom.
-![Terminal — Full Test Run](docs/Screenshots/Terminal%20-%20Full%20Test%20Run.png)
 
 ### 3. Terminal — Working Case (zoom in)
 Crop/zoom into a clean inline case (e.g., `small_func` or `chain_inline`). Shows `@add: no uses -> deleted`, functions before/after count, IR verify valid, PASS.
-![Terminal — Working Case](docs/Screenshots/Terminal%20-%20Working%20Case.png)
 
 ### 4. Terminal — Failure/Blocked Case (zoom in)
 Crop/zoom into `recursive_func` or `mutual_recursive`. Shows the blocked decision, functions unchanged, IR verify valid, PASS. This demonstrates the pass correctly refusing to inline.
-![Terminal — Failure/Blocked Case](docs/Screenshots/Terminal%20-%20Failure:%20Blocked%20cases.png)
 
 ### 5. Web UI — IR Viewer tab
 Open `http://localhost:5000`, select `chain_inline.ll`. Shows the decision cards (INLINE for all three), the before/after IR panels side by side with diff highlighting, and the metrics row showing 4→1 functions.
-![Web UI — IR Viewer tab](docs/Screenshots/Web%20UI%20-%20IR%20Viewer%20tab.png)
 
 ### 6. Web UI — Report tab
 Switch to the Report tab with any test selected. Shows the trade-off analysis and pass outcome section.
-![Web UI — Report tab](docs/Screenshots/Web%20UI%20-%20Report%20tab.png)
 
 ### 7. Web UI — All Tests tab
 Switch to the Summary/All Tests tab. Shows the full cross-test table with all 10 files, their inlined/skipped/blocked columns, and IR reduction percentages.
-![Web UI — All Tests tab](docs/Screenshots/Web%20UI%20-%20All%20tests%20tab.png)
 
 ### 8. Proof of Integration
-Running on GitHub.
-![Proof of Integration](docs/Screenshots/Github%20-%20Proof%20of%20Integration.png)
+Running on GitHub.\
 
 ---
 
