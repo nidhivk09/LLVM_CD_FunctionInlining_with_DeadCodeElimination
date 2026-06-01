@@ -6,6 +6,32 @@ unreachable basic blocks.
 
 ---
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+  - [Step 1 — Set your LLVM build path](#step-1--edit-your-llvm-build-path)
+  - [Step 2 — Build](#step-2--build)
+  - [Step 3 — Run all tests](#step-3--run-all-tests)
+  - [Step 4 — Run the Web UI](#step-4--run-the-web-ui)
+- [Running a Single Test Manually](#running-a-single-test-manually)
+- [What the Pass Does](#what-the-pass-does)
+- [Expected Test Results](#expected-test-results)
+- [Screenshots](#screenshots)
+- [Project Structure](#project-structure)
+  - [`src/InlinePass.cpp`](src/InlinePass.cpp)
+  - [`tests/`](tests/)
+  - [`docs/DESIGN.md`](docs/DESIGN.md)
+  - [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md)
+  - [`docs/EVALUATION.md`](docs/EVALUATION.md)
+  - [`static/index.html`](static/index.html)
+  - [`app.py`](app.py)
+  - [`CMakeLists.txt`](CMakeLists.txt)
+  - [`build.sh`](build.sh)
+  - [`run.sh`](run.sh)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Quick Start
 
 ### Step 1 — Edit your LLVM build path
@@ -57,7 +83,7 @@ pip install flask
 python app.py
 ```
 
-Then open `http://localhost:5000` in your browser. The frontend UI is served from `static/index.html`.
+Then open `http://localhost:5000` in your browser. The frontend UI is served from [`static/index.html`](static/index.html).
 
 ---
 
@@ -95,7 +121,7 @@ The pass runs 3 phases on any `.ll` file:
 | Test | Functions in | Functions out | Why |
 |------|-------------|--------------|-----|
 | `small_func` | 2 | 1 | `@add` (cost 2) inlined and deleted |
-| `large_func` | 2 | 2 | `@heavy_compute` (cost 56) skipped |
+| `large_func` | 2 | 2 | `@heavy_compute` (cost 57) skipped |
 | `recursive_func` | 2 | 2 | `@factorial` blocked (cycle detected) |
 | `multi_call` | 2 | 1 | `@square` inlined at all 5 sites |
 | `mixed` | 4 | 3 | `@tiny` inlined; `@big` skipped; `@recur` blocked |
@@ -109,29 +135,47 @@ The pass runs 3 phases on any `.ll` file:
 
 ## Screenshots
 
+Screenshots are stored in [`docs/Screenshots/`](docs/Screenshots/).
+
 ### 1. Terminal — Build
 Run `./build.sh`, showing the successful build output ending with `Build successful! Plugin: ./pass-build/InlineDCEPass.dylib`.
+
+![Terminal - Build Run](docs/Screenshots/Terminal%20-%20Build%20Run.png)
 
 ### 2. Terminal — Full Test Run
 Run `./run.sh`, showing all 10 tests passing with the baseline comparison table at the bottom.
 
+![Terminal - Full Test Run](docs/Screenshots/Terminal%20-%20Full%20Test%20Run.png)
+
 ### 3. Terminal — Working Case (zoom in)
 Crop/zoom into a clean inline case (e.g., `small_func` or `chain_inline`). Shows `@add: no uses -> deleted`, functions before/after count, IR verify valid, PASS.
 
+![Terminal - Working Case](docs/Screenshots/Terminal%20-%20Working%20Case.png)
+
 ### 4. Terminal — Failure/Blocked Case (zoom in)
-Crop/zoom into `recursive_func` or `mutual_recursive`. Shows the blocked decision, functions unchanged, IR verify valid, PASS. This demonstrates the pass correctly refusing to inline.
+Crop/zoom into `recursive_func` or `mutual_recursive`. Shows the blocked decision, functions unchanged, IR verify valid, PASS.
+
+![Terminal - Blocked Cases](docs/Screenshots/Terminal%20-%20Failure:%20Blocked%20cases.png)
 
 ### 5. Web UI — IR Viewer tab
 Open `http://localhost:5000`, select `chain_inline.ll`. Shows the decision cards (INLINE for all three), the before/after IR panels side by side with diff highlighting, and the metrics row showing 4→1 functions.
 
+![Web UI - IR Viewer tab](docs/Screenshots/Web%20UI%20-%20IR%20Viewer%20tab.png)
+
 ### 6. Web UI — Report tab
 Switch to the Report tab with any test selected. Shows the trade-off analysis and pass outcome section.
+
+![Web UI - Report tab](docs/Screenshots/Web%20UI%20-%20Report%20tab.png)
 
 ### 7. Web UI — All Tests tab
 Switch to the Summary/All Tests tab. Shows the full cross-test table with all 10 files, their inlined/skipped/blocked columns, and IR reduction percentages.
 
+![Web UI - All tests tab](docs/Screenshots/Web%20UI%20-%20All%20tests%20tab.png)
+
 ### 8. Proof of Integration
-Running on GitHub.\
+Running on GitHub Actions (CI).
+
+![GitHub - Proof of Integration](docs/Screenshots/Github%20-%20Proof%20of%20Integration.png)
 
 ---
 
