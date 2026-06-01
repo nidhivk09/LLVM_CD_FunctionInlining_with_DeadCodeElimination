@@ -1,3 +1,4 @@
+# Build configuration for the InlineDCEPass LLVM plugin.
 cmake_minimum_required(VERSION 3.20)
 project(Assignment12InlineDCE C CXX)
 
@@ -15,7 +16,6 @@ endif()
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
 
-# ── Includes ────────────────────────────────────────────────────────────────
 include_directories(${LLVM_INCLUDE_DIRS})
 
 # FIX FOR MAC SOURCE BUILD:
@@ -34,11 +34,11 @@ endif()
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 
-# ── Plugin target ───────────────────────────────────────────────────────────
 add_library(InlineDCEPass MODULE src/InlinePass.cpp)
 
+# === THE FIX IS HERE ===
 target_compile_options(InlineDCEPass PRIVATE
-  -std=c++17 -Wall -Wextra -fno-rtti -fPIC
+  -std=c++17 -Wall -Wextra -fno-rtti -fPIC -Wno-unused-parameter
 )
 
 set_target_properties(InlineDCEPass PROPERTIES PREFIX "")
@@ -49,7 +49,6 @@ else()
   set_target_properties(InlineDCEPass PROPERTIES SUFFIX ".so")
 endif()
 
-# ── Linking ─────────────────────────────────────────────────────────────────
 if(APPLE)
   llvm_map_components_to_libnames(LLVM_LIBS support core irreader analysis transformutils passes)
   target_link_libraries(InlineDCEPass PRIVATE ${LLVM_LIBS})
@@ -58,7 +57,6 @@ else()
   target_link_libraries(InlineDCEPass PRIVATE LLVM)
 endif()
 
-# ── Summary ─────────────────────────────────────────────────────────────────
 message(STATUS "")
 message(STATUS "=== Build configuration ===")
 message(STATUS "  LLVM version : ${LLVM_PACKAGE_VERSION}")

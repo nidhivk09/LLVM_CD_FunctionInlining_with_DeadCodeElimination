@@ -1,54 +1,36 @@
 #!/bin/bash
-# ============================================================================
-# build.sh — Builds the InlineDCEPass plugin
-# Updated for LLVM 15+ (new pass manager only)
-# ============================================================================
+# Builds the InlineDCEPass LLVM plugin into pass-build/
 
 set -e
 
 DEFAULT_LLVM_BUILD="/Volumes/Nayu 1TB/llvm-workspace/build"
 LLVM_BUILD="${LLVM_BUILD:-$DEFAULT_LLVM_BUILD}"
 
-if [[ "$(uname)" == "Darwin" ]]; then
-  LIB_EXT="dylib"
-  OS_NAME="macOS"
-else
-  LIB_EXT="so"
-  OS_NAME="Linux"
-fi
+[[ "$(uname)" == "Darwin" ]] && LIB_EXT="dylib" OS_NAME="macOS" || LIB_EXT="so" OS_NAME="Linux"
 
-echo "=============================================="
-echo "  Building InlineDCEPass ($OS_NAME)"
-echo "  LLVM build: $LLVM_BUILD"
-echo "=============================================="
+echo ""
+echo "  InlineDCEPass — build"
+echo "  ─────────────────────────────────────────"
+echo "  OS   : $OS_NAME"
+echo "  LLVM : $LLVM_BUILD"
 echo ""
 
 if [ ! -f "$LLVM_BUILD/bin/opt" ]; then
-  echo "ERROR: opt not found at:"
-  echo "  $LLVM_BUILD/bin/opt"
-  echo ""
-  echo "Please check your LLVM build path."
-  echo "Either:"
-  echo "  1. Edit DEFAULT_LLVM_BUILD in this script, or"
-  echo "  2. Run:  LLVM_BUILD=\"/your/path\" ./build.sh"
+  echo "  ✗ opt not found at $LLVM_BUILD/bin/opt"
+  echo "    Set LLVM_BUILD or edit DEFAULT_LLVM_BUILD in this file."
   exit 1
 fi
 
-LLVM_VERSION=$("$LLVM_BUILD/bin/opt" --version 2>&1 | head -1)
-echo "LLVM found: $LLVM_VERSION"
+echo "  LLVM version : $("$LLVM_BUILD/bin/opt" --version 2>&1 | head -1)"
 echo ""
 
-mkdir -p pass-build
-cd pass-build
+mkdir -p pass-build && cd pass-build
 
-echo "Configuring with CMake..."
-cmake .. \
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_BUILD_DIR="$LLVM_BUILD"
+echo "  → cmake"
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_BUILD_DIR="$LLVM_BUILD" -Wno-dev
 
 echo ""
-echo "Compiling..."
+echo "  → ninja"
 ninja
 
 cd ..
@@ -57,19 +39,18 @@ PLUGIN="./pass-build/InlineDCEPass.$LIB_EXT"
 
 if [ -f "$PLUGIN" ]; then
   echo ""
-  echo "=============================================="
-  echo "  Build successful!"
-  echo "  Plugin: $PLUGIN"
+  echo "  ✓ built: $PLUGIN"
   echo ""
-  echo "  Run tests:  ./run.sh"
+  echo "  next steps:"
+  echo "    ./run.sh                          run all tests"
+  echo "    python app.py                     open web visualizer"
   echo ""
-  echo "  Or manually (new PM syntax):"
+  echo "  or manually:"
   echo "    \"$LLVM_BUILD/bin/opt\" \\"
   echo "      -load-pass-plugin \"$PLUGIN\" \\"
-  echo "      -passes=\"inline-dce\" \\"
-  echo "      -S tests/small_func.ll"
-  echo "=============================================="
+  echo "      -passes=\"inline-dce\" -S tests/small_func.ll"
+  echo ""
 else
-  echo "ERROR: Build appeared to succeed but plugin not found at $PLUGIN"
+  echo "  ✗ plugin not found after build — check cmake output above"
   exit 1
 fi

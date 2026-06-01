@@ -28,3 +28,9 @@ tests/output/
 *.swp
 *.swo
 *~
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo

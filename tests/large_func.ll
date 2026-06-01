@@ -1,36 +1,6 @@
-; ============================================================================
 ; tests/large_func.ll — TEST 2: Should NOT Inline (cost too high)
-; ============================================================================
-;
-; SCENARIO:
-;   A function @heavy_compute with many instructions, called once.
-;   The cost exceeds the threshold, so it stays as a call.
-;
-; COST ANALYSIS:
-;   Count the instructions below:
-;     %a0 through %final = 30 arithmetic instructions
-;     ret i32 %final     = 1 ret instruction
-;     Total = 31 instructions
-;   Call sites: 1 (called once from @main)
-;   Cost = 31 × 1 = 31
-;   Threshold = 50
-;   Decision: 31 < 50 ... hmm, this actually WOULD inline!
-;
-;   WAIT — we need MORE instructions. Let me use 55+ instructions so cost > 50.
-;   See below: I've added enough arithmetic operations.
-;
-; EXPECTED RESULT AFTER PASS:
-;   Both @heavy_compute and @main remain in the output.
-;   The "call i32 @heavy_compute" instruction remains in @main.
-;   Output file has exactly 2 functions.
-;
-; VERIFICATION:
-;   grep "^define" output.ll   → shows both @heavy_compute and @main
-;   grep "call " output.ll     → shows the call to @heavy_compute still there
-; ============================================================================
 
-; This function has 57 instructions (56 arithmetic + 1 ret).
-; cost = 57 × 1 = 57 >= 50 → SKIP (not inlined)
+
 define i32 @heavy_compute(i32 %x) {
 entry:
   %a0  = mul nsw i32 %x, 2

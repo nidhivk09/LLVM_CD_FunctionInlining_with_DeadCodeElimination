@@ -45,6 +45,20 @@ Output: `pass-build/InlineDCEPass.dylib` (macOS) or `.so` (Linux).
 
 Expected result: **10/10 PASS**.
 
+### Step 4 — Run the Web UI
+
+The project includes a web interface to visualize inlining decisions and LLVM IR changes.
+
+```bash
+# Install dependencies if needed
+pip install flask
+
+# Run the Flask app
+python app.py
+```
+
+Then open `http://localhost:5000` in your browser. The frontend UI is served from `static/index.html`.
+
 ---
 
 ## Running a Single Test Manually
@@ -104,14 +118,22 @@ tests/
   recursive_func.ll     Test 3: recursive → should block
   multi_call.ll         Test 4: called 5 times → all sites inlined
   mixed.ll              Test 5: integration test
-  mutual_recursive.ll   Bonus: mutual recursion failure case
+  single_use.ll         Test 6: single use function inlined
+  multi_func.ll         Test 7: multiple functions inlined
+  mutual_recursive.ll   Test 8: mutual recursion failure case
+  mixed_recursive.ll    Test 9: mixed recursive blocked
+  chain_inline.ll       Test 10: chain inline collapsed
 docs/
   DESIGN.md             Cost heuristic rationale, alternatives
   IMPLEMENTATION.md     LLVM APIs, iterator safety, deletion
   EVALUATION.md         Test results, baseline comparison, thresholds
+static/
+  index.html            Web frontend UI
+app.py                  Flask web application backend
 CMakeLists.txt          Build configuration
 build.sh                Build the plugin
 run.sh                  Run all tests
+README.md               Project documentation
 ```
 
 ---

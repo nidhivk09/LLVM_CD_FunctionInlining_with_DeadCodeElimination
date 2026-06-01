@@ -1,5 +1,5 @@
-; PHASE 1: A calls B, B calls C
-; All are very small (cost < 45), so they should all be inlined into main.
+; Test: chain_inline.ll
+
 
 define i32 @funcC(i32 %x) {
 entry:

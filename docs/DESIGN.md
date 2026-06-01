@@ -119,7 +119,7 @@ Because of this robust detection mechanism, mutual recursion is correctly identi
 | 500       | Inline        | Inline         | Inline          | Very aggressive, potential size explosion |
 
 The default threshold of 45 was chosen because it correctly handles the
-5 test cases in this assignment while representing a realistic production
+10 test cases in this assignment while representing a realistic production
 trade-off between binary size and runtime performance.
 
 ---

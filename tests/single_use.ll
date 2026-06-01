@@ -1,3 +1,5 @@
+; Test: single_use.ll
+
 define i32 @double(i32 %x) {
 entry:
   %result = mul i32 %x, 2

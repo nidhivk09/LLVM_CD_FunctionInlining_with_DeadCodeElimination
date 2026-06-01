@@ -1,3 +1,5 @@
+; Test: multi_func.ll
+
 define i32 @add_one(i32 %x) {
 entry:
   %r = add i32 %x, 1

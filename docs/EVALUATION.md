@@ -249,7 +249,7 @@ a single arithmetic instruction inside @main.
 
 ## 5. Correctness: IR Verification
 
-All output files were validated with LLVM's `-verify` pass:
+A representative sample of output files were validated with LLVM's `-verify` pass:
 
 ```bash
 opt -verify -S tests/output/small_func_after.ll -o /dev/null

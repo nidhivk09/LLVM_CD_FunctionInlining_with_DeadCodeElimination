@@ -1,0 +1,687 @@
+<!-- Web frontend UI to visualize LLVM IR inlining decisions. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLVM Pass Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono&family=Geist:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#f9f8f6;
+  --surface:#ffffff;
+  --surface2:#f3f2ef;
+  --border:#e4e2dc;
+  --border2:#cbc9c2;
+  --text:#1a1917;
+  --text2:#6b6963;
+  --text3:#9e9c96;
+  --mono:'Berkeley Mono',ui-monospace,monospace;
+  --sans:'Geist',system-ui,sans-serif;
+  --inline:#2d6a4f;
+  --inline-bg:#eef7f2;
+  --inline-border:#a8d5bc;
+  --skip:#8a5a00;
+  --skip-bg:#fdf6e3;
+  --skip-border:#e8c97a;
+  --blocked:#8b2020;
+  --blocked-bg:#fdf0f0;
+  --blocked-border:#e8aaaa;
+  --del-bg:#fdf0f0;
+  --del-border:#e8aaaa;
+  --add-bg:#eef7f2;
+  --add-border:#a8d5bc;
+  --call-bg:#fdf6e3;
+  --call-border:#e8c97a;
+  --kw:#4a3fa0;
+  --global:#1a7a8a;
+  --local:#1e6b3a;
+  --num:#b05515;
+  --comment:#aaa89e;
+  --label:#3a6fa0;
+  --accent:#2563eb;
+}
+
+body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh;display:flex}
+
+/* ── Sidebar ── */
+#sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;position:sticky;top:0;overflow-y:auto}
+.sidebar-logo{padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+.sidebar-logo h1{font-size:13px;font-weight:500;color:var(--text);letter-spacing:-.01em}
+.sidebar-logo p{font-size:11px;color:var(--text3);margin-top:2px;font-family:var(--mono)}
+.sidebar-section{padding:14px 12px 8px;font-size:10px;font-weight:500;color:var(--text3);letter-spacing:.08em;text-transform:uppercase}
+.btn-row{display:flex;gap:6px;padding:0 12px 12px}
+.btn{flex:1;padding:6px 10px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--surface2);border-color:var(--border2)}
+.btn:active{transform:scale(.98)}
+.btn.running{opacity:.6;pointer-events:none}
+.file-list{padding:0 8px 12px;flex:1}
+.file-item{padding:6px 10px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:11.5px;color:var(--text2);transition:background .1s,color .1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-item:hover{background:var(--surface2);color:var(--text)}
+.file-item.active{background:#eff3ff;color:var(--accent);font-weight:500}
+.threshold-section{padding:12px 14px;border-top:1px solid var(--border)}
+.threshold-label{font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between}
+.threshold-label span{font-family:var(--mono);font-size:11px;color:var(--text)}
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+.diff-toggle{padding:10px 14px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer}
+.diff-toggle input{accent-color:var(--accent)}
+
+/* ── Main ── */
+#main{flex:1;overflow-y:auto;min-height:100vh}
+
+/* ── Tab bar ── */
+.tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--surface);padding:0 40px;position:sticky;top:0;z-index:10}
+.tab{padding:14px 18px;font-size:12px;font-family:var(--mono);color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.tab-content{padding:32px 40px;display:none}
+.tab-content.active{display:block}
+
+/* ── Top bar ── */
+.top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.page-title{font-size:17px;font-weight:500;letter-spacing:-.02em;font-family:var(--mono)}
+.status-pill{font-size:11px;font-family:var(--mono);padding:3px 10px;border-radius:20px;border:1px solid}
+.pill-ok{background:var(--inline-bg);color:var(--inline);border-color:var(--inline-border)}
+.pill-err{background:var(--blocked-bg);color:var(--blocked);border-color:var(--blocked-border)}
+
+/* ── Section headers ── */
+.section-label{font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── Decision cards ── */
+.cards-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:32px}
+.card{flex:1;min-width:160px;max-width:240px;border:1px solid var(--border);border-radius:10px;padding:16px 14px;background:var(--surface);display:flex;flex-direction:column;gap:4px}
+.card-indicator{width:8px;height:8px;border-radius:50%;margin-bottom:6px}
+.card-name{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--text)}
+.card-verdict{font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.card-reason{font-size:11px;color:var(--text3);margin-top:2px}
+.card-divider{border:none;border-top:1px solid var(--border);margin:8px 0}
+.card-math{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.card-math b{font-weight:500}
+.card.inline{border-color:var(--inline-border);background:var(--inline-bg)}
+.card.inline .card-indicator{background:var(--inline)}
+.card.inline .card-verdict{color:var(--inline)}
+.card.inline .card-math b{color:var(--inline)}
+.card.skip{border-color:var(--skip-border);background:var(--skip-bg)}
+.card.skip .card-indicator{background:var(--skip)}
+.card.skip .card-verdict{color:var(--skip)}
+.card.skip .card-math b{color:var(--skip)}
+.card.blocked{border-color:var(--blocked-border);background:var(--blocked-bg)}
+.card.blocked .card-indicator{background:var(--blocked)}
+.card.blocked .card-verdict{color:var(--blocked)}
+
+/* ── Metrics ── */
+.metrics-row{display:flex;gap:10px;margin-bottom:32px;flex-wrap:wrap}
+.metric{flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.metric-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.metric-value{font-size:22px;font-weight:300;font-family:var(--mono);color:var(--text)}
+.metric-delta{font-size:11px;font-family:var(--mono);margin-top:2px}
+.delta-pos{color:#c0392b}.delta-neg{color:var(--inline)}
+
+/* ── IR panels ── */
+.ir-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.ir-panel{display:flex;flex-direction:column;gap:8px}
+.ir-label{font-size:11px;font-family:var(--mono);color:var(--text2);display:flex;align-items:center;gap:6px}
+.ir-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ir-code{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:11.5px;line-height:1.75;overflow-x:auto;overflow-y:auto;max-height:600px;white-space:pre}
+.hl-del{background:var(--del-bg);border-left:2px solid var(--del-border);padding-left:6px;margin-left:-6px;display:block}
+.hl-add{background:var(--add-bg);border-left:2px solid var(--add-border);padding-left:6px;margin-left:-6px;display:block}
+.hl-call{background:var(--call-bg);border-left:2px solid var(--call-border);padding-left:6px;margin-left:-6px;display:block}
+
+/* ── Legend ── */
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
+.legend-chip{padding:1px 8px;border-radius:4px;font-size:10px;font-family:var(--mono);border:1px solid}
+.chip-del{background:var(--del-bg);color:var(--blocked);border-color:var(--del-border)}
+.chip-add{background:var(--add-bg);color:var(--inline);border-color:var(--add-border)}
+.chip-call{background:var(--call-bg);color:var(--skip);border-color:var(--call-border)}
+
+/* ── Log output ── */
+.log-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;font-family:var(--mono);font-size:11px;color:var(--text2);max-height:200px;overflow-y:auto;white-space:pre-wrap;margin-bottom:24px;display:none}
+.log-box.visible{display:block}
+
+/* ── Expander ── */
+.expander{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:32px}
+.expander-header{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;background:var(--surface);font-size:12px;color:var(--text2)}
+.expander-header:hover{background:var(--surface2)}
+.expander-header svg{transition:transform .2s}
+.expander-body{padding:16px;background:var(--surface);display:none}
+.expander-body.open{display:block}
+.expander.open .expander-header svg{transform:rotate(180deg)}
+
+.footer{font-size:11px;font-family:var(--mono);color:var(--text3);padding-top:16px;border-top:1px solid var(--border)}
+
+/* ── Syntax colors ── */
+.kw{color:var(--kw)}.gl{color:var(--global)}.lc{color:var(--local)}.nm{color:var(--num)}.cm{color:var(--comment);font-style:italic}.lb{color:var(--label);font-weight:500}
+
+/* ── Report tab ── */
+.report-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:32px}
+.report-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px 22px}
+.report-card h3{font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px}
+
+.decision-row{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.decision-row:last-child{border-bottom:none}
+.decision-badge{font-family:var(--mono);font-size:9px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:4px;border:1px solid;white-space:nowrap;flex-shrink:0;margin-top:1px}
+.badge-inline{background:var(--inline-bg);color:var(--inline);border-color:var(--inline-border)}
+.badge-skip{background:var(--skip-bg);color:var(--skip);border-color:var(--skip-border)}
+.badge-blocked{background:var(--blocked-bg);color:var(--blocked);border-color:var(--blocked-border)}
+.decision-info{flex:1;min-width:0}
+.decision-fn{font-family:var(--mono);font-size:12px;color:var(--text);font-weight:500}
+.decision-detail{font-size:11px;color:var(--text3);margin-top:3px;line-height:1.5}
+.decision-tradeoff{font-size:11px;color:var(--text2);margin-top:5px;line-height:1.5;padding:6px 10px;background:var(--surface2);border-radius:5px;border-left:2px solid var(--border2)}
+
+.tradeoff-section{margin-bottom:32px}
+.tradeoff-item{padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.tradeoff-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.tradeoff-icon{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.tradeoff-title{font-size:12px;font-weight:500;color:var(--text)}
+.tradeoff-body{font-size:11.5px;color:var(--text2);line-height:1.6;padding-left:16px}
+
+/* ── Summary table ── */
+.summary-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;margin-bottom:32px}
+.summary-table th{text-align:left;padding:8px 12px;font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);background:var(--surface)}
+.summary-table td{padding:9px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+.summary-table tr:last-child td{border-bottom:none}
+.summary-table tr:hover td{background:var(--surface2)}
+.summary-table td:first-child{color:var(--text);font-weight:500}
+.tbl-inline{color:var(--inline)}.tbl-skip{color:var(--skip)}.tbl-blocked{color:var(--blocked)}
+.tbl-pos{color:#c0392b}.tbl-neg{color:var(--inline)}
+.bar-wrap{display:flex;align-items:center;gap:6px}
+.bar-bg{flex:1;height:4px;background:var(--border);border-radius:2px}
+.bar-fill{height:4px;border-radius:2px;background:var(--inline)}
+
+/* ── Loading ── */
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--text3)}
+</style>
+</head>
+<body>
+
+<div id="loading">loading...</div>
+
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    <h1>LLVM Pass Visualizer</h1>
+    <p>inline + dce</p>
+  </div>
+
+  <div class="sidebar-section">Actions</div>
+  <div class="btn-row">
+    <button class="btn" id="btn-build" onclick="runBuild()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      build
+    </button>
+    <button class="btn" id="btn-run" onclick="runAll()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      run all
+    </button>
+  </div>
+
+  <div class="sidebar-section">Test files</div>
+  <div class="file-list" id="file-list"></div>
+
+  <div class="threshold-section">
+    <div class="threshold-label">
+      <span>cost threshold</span>
+      <span id="threshold-val">45</span>
+    </div>
+    <input type="range" id="threshold" min="1" max="200" value="45" oninput="onThreshold(this.value)">
+  </div>
+
+  <label class="diff-toggle">
+    <input type="checkbox" id="diff-toggle" checked onchange="render()">
+    show IR diff
+  </label>
+</nav>
+
+<main id="main">
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('ir')">IR viewer</div>
+    <div class="tab" onclick="switchTab('report')">report</div>
+    <div class="tab" onclick="switchTab('summary')">all tests</div>
+  </div>
+
+  <!-- ── IR Viewer Tab ── -->
+  <div id="tab-ir" class="tab-content active">
+    <div class="top-bar">
+      <div class="page-title" id="page-title">—</div>
+      <div id="status-pill"></div>
+    </div>
+
+    <div id="log-output" class="log-box"></div>
+
+    <div class="section-label">Phase 1 — analyse &amp; decide</div>
+    <div class="cards-row" id="cards-row"></div>
+
+    <div id="metrics-section" style="display:none">
+      <div class="section-label">Summary metrics</div>
+      <div class="metrics-row" id="metrics-row"></div>
+    </div>
+
+    <div class="section-label">Phase 2 + 3 — before / after IR</div>
+    <div class="ir-row" id="ir-row"></div>
+
+    <div id="legend" class="legend" style="display:none">
+      <div class="legend-item"><span class="legend-chip chip-del">red</span> removed line</div>
+      <div class="legend-item"><span class="legend-chip chip-add">green</span> added line</div>
+      <div class="legend-item"><span class="legend-chip chip-call">amber</span> call instruction</div>
+    </div>
+
+    <div id="baseline-section"></div>
+    <div class="footer" id="footer"></div>
+  </div>
+
+  <!-- ── Report Tab ── -->
+  <div id="tab-report" class="tab-content">
+    <div class="top-bar">
+      <div class="page-title" id="report-title">—</div>
+    </div>
+
+    <div class="section-label">Inlining decisions</div>
+    <div id="report-decisions"></div>
+
+    <div class="section-label">Performance vs code size trade-offs</div>
+    <div class="tradeoff-section" id="report-tradeoffs"></div>
+
+    <div class="section-label">Pass outcome</div>
+    <div id="report-outcome"></div>
+  </div>
+
+  <!-- ── All Tests Tab ── -->
+  <div id="tab-summary" class="tab-content">
+    <div class="top-bar">
+      <div class="page-title">all test results</div>
+    </div>
+    <div class="section-label">Cross-test summary</div>
+    <div id="summary-table-wrap"></div>
+    <div class="footer">threshold = <span id="summary-threshold">45</span> &nbsp;·&nbsp; results are computed in-browser from your current IR files</div>
+  </div>
+
+</main>
+
+<script>
+let state = { files: [], selected: null, threshold: 45, data: null, allData: {} };
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    t.classList.toggle('active', ['ir','report','summary'][i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name === 'summary') renderSummary();
+}
+
+// ── Syntax highlighting ────────────────────────────────────────────────────
+const KW=/\b(define|declare|call|ret|br|load|store|alloca|getelementptr|icmp|fcmp|add|sub|mul|sdiv|udiv|srem|urem|and|or|xor|shl|lshr|ashr|phi|select|switch|invoke|unreachable|i1|i8|i16|i32|i64|i128|float|double|void|ptr|label|align|nsw|nuw|exact|inbounds|true|false|null|zeroinitializer|undef)\b/g;
+const GL=/@[\w.]+/g;const LC=/%[\w.]+/g;const NM=/\b-?\d+\b/g;
+const CM=/;.*$/;const LBL=/^\s*[\w.]+:$/;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function colorizeLine(line){
+  const cm=CM.exec(line);
+  if(cm) return tokenize(line.slice(0,cm.index))+`<span class="cm">${esc(line.slice(cm.index))}</span>`;
+  if(LBL.test(line)) return `<span class="lb">${esc(line)}</span>`;
+  return tokenize(line);
+}
+function tokenize(text){
+  const spans=[],used=new Set();
+  const add=(re,cls)=>{re.lastIndex=0;let m;while((m=re.exec(text))!==null){let ok=true;for(let i=m.index;i<m.index+m[0].length;i++)if(used.has(i)){ok=false;break}if(ok){for(let i=m.index;i<m.index+m[0].length;i++)used.add(i);spans.push({s:m.index,e:m.index+m[0].length,cls})}}};
+  add(GL,'gl');add(LC,'lc');add(KW,'kw');add(NM,'nm');
+  if(!spans.length)return esc(text);
+  spans.sort((a,b)=>a.s-b.s);
+  let out='',pos=0;
+  for(const{s,e,cls}of spans){if(s>pos)out+=esc(text.slice(pos,s));out+=`<span class="${cls}">${esc(text.slice(s,e))}</span>`;pos=e}
+  if(pos<text.length)out+=esc(text.slice(pos));
+  return out;
+}
+function renderIR(ir,diffClass,diffSet,isBeforePanel=false){
+  if(!ir)return '<span style="color:var(--text3);font-size:12px">not available</span>';
+  const diffLookup=diffSet?new Set(diffSet):null;
+  const showDiff=document.getElementById('diff-toggle').checked;
+  return ir.split('\n').map(line=>{
+    const stripped=line.trim();let cls='';
+    if(isBeforePanel&&/\bcall\b/.test(line)&&!line.includes('llvm.'))cls='hl-call';
+    if(showDiff&&diffLookup&&stripped&&diffLookup.has(stripped))cls=diffClass;
+    const colored=colorizeLine(line);
+    return cls?`<span class="${cls}">${colored}</span>`:colored;
+  }).join('\n');
+}
+
+// ── Card rendering ─────────────────────────────────────────────────────────
+function renderCard(d){
+  const cls=d.decision.toLowerCase();
+  const math=d.cycle?'cycle — cost not computed':`${d.instrs} &times; ${d.calls} = <b>${d.cost_str}</b>`;
+  return `<div class="card ${cls}"><div class="card-indicator"></div><div class="card-name">@${d.name}</div><div class="card-verdict">${d.decision.toLowerCase()}</div><div class="card-reason">${d.reason}</div><hr class="card-divider"><div class="card-math">${math}</div></div>`;
+}
+function renderMetric(label,value,delta){
+  let dh='';
+  if(delta!==undefined){const sign=delta>0?'+':'';const cls=delta>0?'delta-pos':'delta-neg';dh=`<div class="metric-delta ${cls}">${sign}${delta}</div>`}
+  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${value}</div>${dh}</div>`;
+}
+
+// ── Trade-off analysis ─────────────────────────────────────────────────────
+function tradeoffExplain(d){
+  if(d.decision === 'INLINE'){
+    const saved = d.instrs; // function body removed
+    const overhead = d.calls; // call overhead removed
+    return `Inlining @${d.name} eliminates ${d.calls} call overhead(s) and enables further optimizations like constant propagation and dead branch elimination at each call site. The function body (${d.instrs} instructions) is duplicated ${d.calls} time(s), increasing code size by roughly ${d.instrs * d.calls} instruction-equivalents total — but the pass then runs DCE to remove the now-unused original, recovering most of that.`;
+  }
+  if(d.decision === 'SKIP'){
+    return `@${d.name} has a cost of ${d.cost} (${d.instrs} instrs × ${d.calls} call site${d.calls!==1?'s':''}), which meets or exceeds the threshold of ${state.threshold}. Inlining would inflate the caller's code size significantly with diminishing returns — the call overhead is small relative to the function body. Keeping it as a call also lets the CPU's branch predictor and instruction cache work efficiently across repeated calls.`;
+  }
+  if(d.decision === 'BLOCKED'){
+    return `@${d.name} is recursive, so inlining it would create an infinite expansion. The pass correctly detects this cycle via BFS on the call graph and blocks it entirely. Recursive functions are best handled by other optimizations (tail-call elimination, loop transformation) rather than inlining.`;
+  }
+  return '';
+}
+
+function renderReport(){
+  const d = state.data;
+  if(!d) return;
+
+  document.getElementById('report-title').textContent = state.selected || '—';
+
+  // Decisions list
+  const decisionsHtml = d.decisions.length ? d.decisions.map(dec => {
+    const badgeCls = `badge-${dec.decision.toLowerCase()}`;
+    const math = dec.cycle ? 'cycle detected' : `${dec.instrs} instrs × ${dec.calls} calls = ${dec.cost_str}`;
+    return `<div class="decision-row">
+      <span class="decision-badge ${badgeCls}">${dec.decision.toLowerCase()}</span>
+      <div class="decision-info">
+        <div class="decision-fn">@${dec.name}</div>
+        <div class="decision-detail">${math} &nbsp;·&nbsp; ${dec.reason}</div>
+        <div class="decision-tradeoff">${tradeoffExplain(dec)}</div>
+      </div>
+    </div>`;
+  }).join('') : '<span style="color:var(--text3);font-size:12px">no non-main functions found</span>';
+
+  document.getElementById('report-decisions').innerHTML =
+    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px 16px;margin-bottom:32px">${decisionsHtml}</div>`;
+
+  // Trade-offs
+  const inlined  = d.decisions.filter(x=>x.decision==='INLINE');
+  const skipped  = d.decisions.filter(x=>x.decision==='SKIP');
+  const blocked  = d.decisions.filter(x=>x.decision==='BLOCKED');
+
+  const tradeoffs = [];
+
+  if(inlined.length){
+    const totalSites = inlined.reduce((s,x)=>s+x.calls, 0);
+    const totalInstrs = inlined.reduce((s,x)=>s+x.instrs*x.calls, 0);
+    tradeoffs.push({
+      color: 'var(--inline)',
+      title: 'Performance gain from inlining',
+      body: `${inlined.length} function${inlined.length!==1?'s':''} inlined across ${totalSites} call site${totalSites!==1?'s':''}. Each inlined call eliminates a function call frame, enabling the backend to perform interprocedural optimizations — constant folding, dead store elimination, and register allocation improvements — that cross call boundaries. Estimated ~${totalSites * 3}–${totalSites * 6} fewer instructions at runtime (call setup + return overhead).`
+    });
+    tradeoffs.push({
+      color: 'var(--skip)',
+      title: 'Code size cost of inlining',
+      body: `~${totalInstrs} instruction-equivalents duplicated across call sites before DCE. After DCE removes the now-dead original function definition${inlined.length!==1?'s':''}, net size impact is reduced — but inlined code cannot be shared by the instruction cache the way a single called function can. This is an acceptable trade-off when call frequency is low and functions are small.`
+    });
+  }
+
+  if(skipped.length){
+    tradeoffs.push({
+      color: 'var(--skip)',
+      title: `Code size protection (${skipped.length} function${skipped.length!==1?'s':''} skipped)`,
+      body: `${skipped.map(x=>`@${x.name} (cost ${x.cost})`).join(', ')} exceed${skipped.length===1?'s':''} the threshold of ${state.threshold}. Inlining large functions bloats the binary and pollutes the instruction cache — the performance cost of repeated cache misses often outweighs the call overhead savings. The threshold is the key tuning knob here: lowering it inlines more aggressively; raising it protects code size.`
+    });
+  }
+
+  if(blocked.length){
+    tradeoffs.push({
+      color: 'var(--blocked)',
+      title: `Recursive functions blocked (${blocked.length})`,
+      body: `${blocked.map(x=>`@${x.name}`).join(', ')} form${blocked.length===1?' a':''} cycle${blocked.length!==1?'s':''} in the call graph. These must not be inlined — the compiler would loop infinitely generating IR. The BFS cycle detection in Phase 1 correctly identifies and blocks these regardless of their instruction count or call frequency.`
+    });
+  }
+
+  document.getElementById('report-tradeoffs').innerHTML = tradeoffs.map(t=>`
+    <div class="tradeoff-item">
+      <div class="tradeoff-header">
+        <div class="tradeoff-icon" style="background:${t.color}"></div>
+        <div class="tradeoff-title">${t.title}</div>
+      </div>
+      <div class="tradeoff-body">${t.body}</div>
+    </div>`).join('');
+
+  // Outcome
+  const m = d.metrics;
+  if(m){
+    const fnDelta = m.funcs_after - m.funcs_before;
+    const callDelta = m.calls_after - m.calls_before;
+    document.getElementById('report-outcome').innerHTML = `
+      <div class="report-grid" style="margin-bottom:32px">
+        <div class="report-card">
+          <h3>What the pass did</h3>
+          <div class="decision-detail" style="font-size:12px;line-height:1.8">
+            Started with <b>${m.funcs_before}</b> function definition${m.funcs_before!==1?'s':''} and <b>${m.calls_before}</b> call instruction${m.calls_before!==1?'s':''}.<br>
+            After inlining + DCE: <b>${m.funcs_after}</b> function${m.funcs_after!==1?'s':''} remain, <b>${m.calls_after}</b> call${m.calls_after!==1?'s':''} remain.<br>
+            IR reduced by <b>${m.pct}%</b> in line count.
+            ${fnDelta < 0 ? `<br>Removed <b>${Math.abs(fnDelta)}</b> dead function${Math.abs(fnDelta)!==1?'s':''} via DCE.` : ''}
+            ${callDelta < 0 ? `<br>Eliminated <b>${Math.abs(callDelta)}</b> call instruction${Math.abs(callDelta)!==1?'s':''}.` : ''}
+          </div>
+        </div>
+        <div class="report-card">
+          <h3>Threshold analysis</h3>
+          <div class="decision-detail" style="font-size:12px;line-height:1.8">
+            Current threshold: <b>${state.threshold}</b> (instrs × call sites).<br>
+            ${inlined.length ? `Functions inlined: <b style="color:var(--inline)">${inlined.map(x=>'@'+x.name).join(', ')}</b><br>` : ''}
+            ${skipped.length ? `Functions skipped: <b style="color:var(--skip)">${skipped.map(x=>'@'+x.name).join(', ')}</b><br>` : ''}
+            ${blocked.length ? `Functions blocked (recursive): <b style="color:var(--blocked)">${blocked.map(x=>'@'+x.name).join(', ')}</b><br>` : ''}
+            Try dragging the threshold slider in the sidebar to see how decisions change.
+          </div>
+        </div>
+      </div>`;
+  } else {
+    document.getElementById('report-outcome').innerHTML =
+      '<span style="color:var(--text3);font-size:12px">run ./run.sh to generate output IR and see pass outcome</span>';
+  }
+}
+
+// ── Summary table (all tests) ──────────────────────────────────────────────
+async function renderSummary(){
+  document.getElementById('summary-threshold').textContent = state.threshold;
+  const wrap = document.getElementById('summary-table-wrap');
+  wrap.innerHTML = '<span style="color:var(--text3);font-size:12px;font-family:var(--mono)">loading…</span>';
+
+  const allResults = await Promise.all(
+    state.files.map(f =>
+      fetch(`/api/analyse?file=${encodeURIComponent(f)}&threshold=${state.threshold}`)
+        .then(r=>r.json()).then(d=>({file:f, ...d}))
+    )
+  );
+
+  const maxReduction = Math.max(...allResults.filter(r=>r.metrics).map(r=>r.metrics.pct), 1);
+
+  const rows = allResults.map(r => {
+    const m = r.metrics;
+    const inlined  = r.decisions.filter(x=>x.decision==='INLINE').map(x=>`@${x.name}`);
+    const skipped  = r.decisions.filter(x=>x.decision==='SKIP').map(x=>`@${x.name}`);
+    const blocked  = r.decisions.filter(x=>x.decision==='BLOCKED').map(x=>`@${x.name}`);
+    const pct = m ? m.pct : null;
+    const barWidth = pct ? Math.round((pct / maxReduction) * 100) : 0;
+    const fnDelta = m ? m.funcs_after - m.funcs_before : null;
+    const callDelta = m ? m.calls_after - m.calls_before : null;
+
+    return `<tr onclick="load('${r.file}');switchTab('ir')" style="cursor:pointer">
+      <td>${r.file.replace('.ll','')}</td>
+      <td>${inlined.length ? inlined.map(n=>`<span class="tbl-inline">${n}</span>`).join(' ') : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${skipped.length ? skipped.map(n=>`<span class="tbl-skip">${n}</span>`).join(' ') : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${blocked.length ? blocked.map(n=>`<span class="tbl-blocked">${n}</span>`).join(' ') : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${fnDelta !== null ? `<span class="${fnDelta<0?'tbl-neg':'tbl-pos'}">${fnDelta>0?'+':''}${fnDelta}</span>` : '—'}</td>
+      <td>${callDelta !== null ? `<span class="${callDelta<0?'tbl-neg':'tbl-pos'}">${callDelta>0?'+':''}${callDelta}</span>` : '—'}</td>
+      <td>${pct !== null ? `<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${barWidth}%"></div></div><span>${pct}%</span></div>` : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>test file</th>
+          <th>inlined</th>
+          <th>skipped</th>
+          <th>blocked</th>
+          <th>fn delta</th>
+          <th>call delta</th>
+          <th>IR reduction</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono)">click any row to open that test in the IR viewer</div>`;
+}
+
+// ── Main render ────────────────────────────────────────────────────────────
+function render(){
+  const d = state.data;
+  if(!d) return;
+
+  document.getElementById('page-title').textContent = state.selected || '—';
+  const pill = document.getElementById('status-pill');
+  pill.innerHTML = d.after_ir
+    ? '<span class="status-pill pill-ok">output IR found</span>'
+    : '<span class="status-pill pill-err">output not found — run ./run.sh first</span>';
+
+  document.getElementById('cards-row').innerHTML =
+    d.decisions.length ? d.decisions.map(renderCard).join('') :
+    '<span style="color:var(--text3);font-size:12px">no non-main functions found</span>';
+
+  const ms = document.getElementById('metrics-section');
+  if(d.metrics){
+    ms.style.display='';
+    const m=d.metrics;
+    document.getElementById('metrics-row').innerHTML=
+      renderMetric('functions before',m.funcs_before)+
+      renderMetric('functions after',m.funcs_after,m.funcs_after-m.funcs_before)+
+      renderMetric('calls before',m.calls_before)+
+      renderMetric('calls after',m.calls_after,m.calls_after-m.calls_before)+
+      renderMetric('IR line reduction',m.pct+'%');
+  } else ms.style.display='none';
+
+  const showDiff=document.getElementById('diff-toggle').checked;
+  const irRow=document.getElementById('ir-row');
+  if(d.after_ir){
+    irRow.style.gridTemplateColumns='1fr 1fr';
+    irRow.innerHTML=`
+      <div class="ir-panel">
+        <div class="ir-label"><span class="ir-dot" style="background:#e5b4b4"></span>before pass</div>
+        <div class="ir-code">${renderIR(d.before_ir,'hl-del',showDiff?d.deleted:null,true)}</div>
+      </div>
+      <div class="ir-panel">
+        <div class="ir-label"><span class="ir-dot" style="background:#90c49a"></span>after pass</div>
+        <div class="ir-code">${renderIR(d.after_ir,'hl-add',showDiff?d.added:null,false)}</div>
+      </div>`;
+    document.getElementById('legend').style.display=showDiff?'flex':'none';
+  } else {
+    irRow.style.gridTemplateColumns='1fr';
+    irRow.innerHTML=`
+      <div class="ir-panel">
+        <div class="ir-label"><span class="ir-dot" style="background:#e5b4b4"></span>before pass</div>
+        <div class="ir-code">${renderIR(d.before_ir,'hl-call',null,true)}</div>
+      </div>`;
+    document.getElementById('legend').style.display='none';
+  }
+
+  const bs=document.getElementById('baseline-section');
+  if(d.base_ir){
+    const bFuncs=(d.base_ir.match(/^define\b/gm)||[]).length;
+    const oFuncs=d.after_ir?(d.after_ir.match(/^define\b/gm)||[]).length:'?';
+    bs.innerHTML=`
+      <div class="expander" id="exp">
+        <div class="expander-header" onclick="toggleExp()">
+          <span>baseline comparison — our pass vs -always-inline</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="expander-body" id="exp-body">
+          <div class="ir-row" style="margin-bottom:12px">
+            <div class="ir-panel">
+              <div class="ir-label"><span class="ir-dot" style="background:#5a7fa8"></span>our pass (inline-dce)</div>
+              <div class="ir-code">${renderIR(d.after_ir||'','',null)}</div>
+            </div>
+            <div class="ir-panel">
+              <div class="ir-label"><span class="ir-dot" style="background:#9a6ec4"></span>-always-inline (baseline)</div>
+              <div class="ir-code">${renderIR(d.base_ir,'',null)}</div>
+            </div>
+          </div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text3)">
+            our pass: ${oFuncs} function(s) &nbsp;|&nbsp; -always-inline: ${bFuncs} function(s)
+          </div>
+        </div>
+      </div>`;
+  } else bs.innerHTML='';
+
+  document.getElementById('footer').textContent=`LLVM inline + DCE  ·  threshold = ${state.threshold}`;
+
+  renderReport();
+}
+
+function toggleExp(){
+  document.getElementById('exp').classList.toggle('open');
+  document.getElementById('exp-body').classList.toggle('open');
+}
+
+// ── Data fetching ──────────────────────────────────────────────────────────
+async function load(file){
+  state.selected=file;
+  document.querySelectorAll('.file-item').forEach(el=>{
+    el.classList.toggle('active',el.dataset.file===file);
+  });
+  const res=await fetch(`/api/analyse?file=${encodeURIComponent(file)}&threshold=${state.threshold}`);
+  state.data=await res.json();
+  render();
+}
+
+async function loadFiles(){
+  const res=await fetch('/api/files');
+  state.files=await res.json();
+  const list=document.getElementById('file-list');
+  list.innerHTML=state.files.map(f=>
+    `<div class="file-item" data-file="${f}" onclick="load('${f}')">${f}</div>`
+  ).join('');
+  if(state.files.length) load(state.files[0]);
+}
+
+async function runBuild(){
+  const btn=document.getElementById('btn-build');
+  btn.classList.add('running');btn.textContent='building…';
+  showLog('');
+  const res=await fetch('/api/build',{method:'POST'});
+  const d=await res.json();
+  btn.classList.remove('running');btn.textContent='build';
+  showLog(d.ok?'✓ build succeeded':'✗ build failed\n'+d.output);
+}
+
+async function runAll(){
+  const btn=document.getElementById('btn-run');
+  btn.classList.add('running');btn.textContent='running…';
+  showLog('');
+  const res=await fetch('/api/run',{method:'POST'});
+  const d=await res.json();
+  btn.classList.remove('running');btn.textContent='run all';
+  showLog(d.output);
+  if(state.selected) load(state.selected);
+}
+
+function showLog(text){
+  const el=document.getElementById('log-output');
+  el.textContent=text;
+  el.classList.toggle('visible',!!text);
+}
+
+function onThreshold(val){
+  state.threshold=parseInt(val);
+  document.getElementById('threshold-val').textContent=val;
+  if(state.selected) load(state.selected);
+}
+
+loadFiles().then(()=>{ document.getElementById('loading').style.display='none'; });
+</script>
+</body>
+</html>

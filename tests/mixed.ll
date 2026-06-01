@@ -1,45 +1,12 @@
-; ============================================================================
 ; tests/mixed.ll — TEST 5: Integration Test (All Cases Together)
-; ============================================================================
-;
-; SCENARIO:
-;   A realistic module with THREE different functions demonstrating all three
-;   pass behaviors at once:
-;     @tiny  → 2 instructions, called once  → cost=2  → INLINE ✓
-;     @big   → 56 instructions, called once → cost=56 → SKIP  ✗
-;     @recur → recursive                     → BLOCK   ⊘
-;
-; THIS IS THE MOST IMPORTANT TEST because it shows your pass makes
-; SELECTIVE decisions — it doesn't inline everything blindly, and it
-; doesn't skip everything conservatively. It correctly applies each rule.
-;
-; COST ANALYSIS:
-;   @tiny:  2 instrs × 1 call = 2  < 50 → INLINE
-;   @big:   56 instrs × 1 call = 56 >= 50 → SKIP
-;   @recur: recursive → BLOCKED (cost not computed)
-;
-; EXPECTED RESULT AFTER PASS:
-;   @tiny is inlined into @main, then deleted.
-;   @big remains as a separate function.
-;   @recur remains as a separate function.
-;   @main remains.
-;   Output: 3 functions (@main, @big, @recur)
-;
-; VERIFICATION:
-;   grep "^define" output.ll   → @main, @big, @recur (3 total)
-;   grep "call " output.ll     → calls to @big and @recur remain (NOT @tiny)
-; ============================================================================
 
-; ── @tiny: 2 instructions, below threshold ─────────────────────────────────
-; cost = 2 × 1 = 2 → INLINE
+
 define i32 @tiny(i32 %x) {
 entry:
   %r = add nsw i32 %x, 1
   ret i32 %r
 }
 
-; ── @big: 56 instructions, above threshold ─────────────────────────────────
-; cost = 56 × 1 = 56 → SKIP (not inlined, stays as a function call)
 define i32 @big(i32 %x) {
 entry:
   %a0  = mul nsw i32 %x,  2
@@ -92,8 +59,6 @@ entry:
   ret i32 %final
 }
 
-; ── @recur: recursive function, must be blocked ──────────────────────────────
-; isDirectlyRecursive() detects "call i32 @recur" inside @recur → BLOCKED
 define i32 @recur(i32 %n) {
 entry:
   %cmp = icmp eq i32 %n, 0
@@ -104,21 +69,17 @@ done:
 
 go_deeper:
   %n1  = sub nsw i32 %n, 1
-  %sub = call i32 @recur(i32 %n1)      ; ← self-call detected here
+  %sub = call i32 @recur(i32 %n1)      
   %r   = mul nsw i32 %n, %sub
   ret i32 %r
 }
 
-; ── @main: calls all three functions ─────────────────────────────────────────
 define i32 @main() {
 entry:
-  ; @tiny will be inlined — this call instruction will disappear
   %a = call i32 @tiny(i32 10)
 
-  ; @big will NOT be inlined — this call instruction stays
   %b = call i32 @big(i32 %a)
 
-  ; @recur will NOT be inlined (blocked) — this call instruction stays
   %c = call i32 @recur(i32 5)
 
   %total = add nsw i32 %b, %c

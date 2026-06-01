@@ -1,3 +1,5 @@
+; Test: mixed_recursive.ll
+
 define i32 @fib(i32 %n) {
 entry:
   %cmp = icmp slt i32 %n, 2

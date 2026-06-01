@@ -1,9 +1,9 @@
+// Implementation of the LLVM ModulePass for Function Inlining and Dead Code Elimination.
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
 
-// Robust PassPlugin Include
 #if __has_include("llvm/Passes/PassPlugin.h")
 #  include "llvm/Passes/PassPlugin.h"
 #elif __has_include("llvm/Plugins/PassPlugin.h")
@@ -34,7 +34,6 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
       CallGraph CG(M); 
       SmallVector<Function *, 16> ToInline;
 
-      // ── PHASE 1: IDENTIFY ──────────────────────────────────────────────
       for (Function &F : M) {
         if (F.isDeclaration() || F.getName() == "main") continue;
 
@@ -77,7 +76,6 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
         }
       }
 
-      // ── PHASE 2: INLINE ────────────────────────────────────────────────
       for (Function *F : ToInline) {
         SmallVector<CallBase *, 8> Calls;
         for (Use &U : F->uses()) {
@@ -94,9 +92,8 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
           }
         }
       }
-    } // CallGraph CG is destroyed here
+    } 
 
-    // ── PHASE 3: DCE ───────────────────────────────────────────────────
     bool LocalDeadChanged;
     do {
       LocalDeadChanged = false;
@@ -117,7 +114,7 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
   }
 };
 
-} // end anonymous namespace
+} 
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
