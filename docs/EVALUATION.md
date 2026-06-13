@@ -9,11 +9,11 @@ whether the expected transformation was applied.
 
 | Metric | Value |
 |--------|-------|
-| Function instruction count | 2 |
+| Function instruction count | 1 |
 | Call sites | 1 |
-| Cost | 2 × 1 = 2 |
+| Cost | 1 × 1 = 1 |
 | Threshold | 45 |
-| Decision | INLINE (2 < 45) |
+| Decision | INLINE (1 < 45) |
 | Functions before pass | 2 (@add, @main) |
 | Functions after pass | 1 (@main only) |
 | Call instructions after pass | 0 |
@@ -63,11 +63,11 @@ blocked it before computing cost. The IR was not modified at all.
 
 | Metric | Value |
 |--------|-------|
-| Function instruction count | 2 |
+| Function instruction count | 1 |
 | Call sites | 5 |
-| Cost | 2 × 5 = 10 |
+| Cost | 1 × 5 = 5 |
 | Threshold | 45 |
-| Decision | INLINE (10 < 45) |
+| Decision | INLINE (5 < 45) |
 | Functions before pass | 2 (@square, @main) |
 | Functions after pass | 1 (@main only) |
 | Call instructions after pass | 0 |
@@ -84,7 +84,7 @@ and was deleted.
 
 | Function | Instructions | Calls | Cost | Decision | Outcome |
 |----------|-------------|-------|------|----------|---------|
-| @tiny    | 2           | 1     | 2    | INLINE   | Inlined into @main, deleted |
+| @tiny    | 1           | 1     | 1    | INLINE   | Inlined into @main, deleted |
 | @big     | 47          | 1     | 47   | SKIP     | Remains as function call |
 | @recur   | 7           | 1     | —    | BLOCKED  | Not touched (recursive) |
 
@@ -100,21 +100,21 @@ in the same module.
 
 ---
 
-### Test 6: single_use.ll (@double)
+### Test 6: single_use.ll (@double_val)
 
 | Metric | Value |
 |--------|-------|
-| Function instruction count | 2 |
+| Function instruction count | 1 |
 | Call sites | 1 |
-| Cost | 2 × 1 = 2 |
+| Cost | 1 × 1 = 1 |
 | Threshold | 45 |
-| Decision | INLINE (2 < 45) |
-| Functions before pass | 2 (@double, @main) |
+| Decision | INLINE (1 < 45) |
+| Functions before pass | 2 (@double_val, @main) |
 | Functions after pass | 1 (@main only) |
 | Call instructions after pass | 0 |
 | Result | ✓ PASS |
 
-The function `@double` is inlined at its single call site and then deleted via DCE.
+The function `@double_val` is inlined at its single call site and then deleted via DCE.
 
 ---
 
@@ -123,8 +123,8 @@ The function `@double` is inlined at its single call site and then deleted via D
 | Metric | Value |
 |--------|-------|
 | Functions to process | 2 (@add_one, @times_two) |
-| Cost of @add_one | 2 × 1 = 2 < 45 (INLINE) |
-| Cost of @times_two | 2 × 1 = 2 < 45 (INLINE) |
+| Cost of @add_one | 1 × 1 = 1 < 45 (INLINE) |
+| Cost of @times_two | 1 × 1 = 1 < 45 (INLINE) |
 | Functions before pass | 3 (@add_one, @times_two, @main) |
 | Functions after pass | 1 (@main only) |
 | Call instructions after pass | 0 |
@@ -153,7 +153,7 @@ The CallGraph analysis successfully detects the cycle between `@is_even` and `@i
 | Metric | Value |
 |--------|-------|
 | @fib | Cycle detected → BLOCKED |
-| @negate | Cost: 2 × 1 = 2 < 45 → INLINE |
+| @negate | Cost: 1 × 1 = 1 < 45 → INLINE |
 | Functions before pass | 3 (@fib, @negate, @main) |
 | Functions after pass | 2 (@fib, @main) |
 | Call instructions to @negate | 0 |
@@ -204,7 +204,7 @@ majority of real-world code.
 To understand the effect of the threshold, the pass was rebuilt with different
 `INLINE_THRESHOLD` values and run on the test suite.
 
-| Threshold | small_func (cost 2) | large_func (cost 56) | multi_call (cost 10) | @big in mixed (cost 47) |
+| Threshold | small_func (cost 1) | large_func (cost 56) | multi_call (cost 5) | @big in mixed (cost 47) |
 |-----------|--------------------|--------------------|---------------------|------------------------|
 | 1         | Skip               | Skip               | Skip                | Skip                   |
 | 5         | Inline             | Skip               | Skip                | Skip                   |
@@ -232,18 +232,20 @@ in production compilers (e.g., GCC's default inline threshold of approximately
 
 IR line count before and after the pass, as a proxy for code size:
 
-| Test | Lines before pass | Lines after pass | Reduction |
-|------|------------------|-----------------|-----------|
-| small_func | 12 | 7 | 42% |
-| large_func | 70 | 70 | 0% (correctly not inlined) |
-| recursive_func | 20 | 20 | 0% (correctly blocked) |
-| multi_call | 18 | 15 | 17% |
-| mixed | 85 | 78 | 8% |
-| chain_inline | 26 | 7 | 73% |
+| Test | Lines before | Lines after | Reduction |
+|------|-------------|-------------|-----------|
+| small_func | 28 | 20 | 29% |
+| large_func | 83 | 83 | 0% (correctly not inlined) |
+| recursive_func | 41 | 41 | 0% (correctly blocked) |
+| multi_call | 36 | 24 | 33% |
+| mixed | 104 | 96 | 8% |
+| single_use | 28 | 20 | 29% |
+| multi_func | 36 | 20 | 44% |
+| mutual_recursive | 59 | 59 | 0% (correctly blocked) |
+| mixed_recursive | 51 | 44 | 14% |
+| chain_inline | 42 | 20 | 52% |
 
-Note: For small_func, the line count reduction is large because @add's entire
-function definition (5 lines including braces and blank lines) is replaced by
-a single arithmetic instruction inside @main.
+Every test either reduces or holds flat — the 0% cases are correct because those functions were intentionally skipped or blocked. `multi_func` (44%) and `chain_inline` (52%) are the strongest results.
 
 ---
 

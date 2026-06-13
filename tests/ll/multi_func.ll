@@ -1,4 +1,4 @@
-; ModuleID = 'tests/multi_func.c'
+; ModuleID = 'tests/ll/multi_func.ll'
 source_filename = "tests/multi_func.c"
 target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-macosx26.0.0"
@@ -6,37 +6,23 @@ target triple = "arm64-apple-macosx26.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @add_one(i32 noundef %x) #0 {
 entry:
-  %x.addr = alloca i32, align 4
-  store i32 %x, ptr %x.addr, align 4
-  %0 = load i32, ptr %x.addr, align 4
-  %add = add nsw i32 %0, 1
+  %add = add nsw i32 %x, 1
   ret i32 %add
 }
 
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @times_two(i32 noundef %x) #0 {
 entry:
-  %x.addr = alloca i32, align 4
-  store i32 %x, ptr %x.addr, align 4
-  %0 = load i32, ptr %x.addr, align 4
-  %mul = mul nsw i32 %0, 2
+  %mul = mul nsw i32 %x, 2
   ret i32 %mul
 }
 
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @main() #0 {
 entry:
-  %retval = alloca i32, align 4
-  %a = alloca i32, align 4
-  %b = alloca i32, align 4
-  store i32 0, ptr %retval, align 4
   %call = call i32 @add_one(i32 noundef 5)
-  store i32 %call, ptr %a, align 4
-  %0 = load i32, ptr %a, align 4
-  %call1 = call i32 @times_two(i32 noundef %0)
-  store i32 %call1, ptr %b, align 4
-  %1 = load i32, ptr %b, align 4
-  ret i32 %1
+  %call1 = call i32 @times_two(i32 noundef %call)
+  ret i32 %call1
 }
 
 attributes #0 = { noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }

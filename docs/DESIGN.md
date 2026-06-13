@@ -110,13 +110,14 @@ Because of this robust detection mechanism, mutual recursion is correctly identi
 
 ## 7. Threshold Sensitivity Analysis
 
-| Threshold | @tiny (cost 2) | @big (cost 56) | @heavy (cost 31) | Trade-off |
-|-----------|---------------|----------------|-----------------|-----------|
-| 1         | Skip          | Skip           | Skip            | Too conservative, no inlining |
-| 10        | Inline        | Skip           | Skip            | Only the smallest utilities inline |
-| 45 (default) | Inline    | Skip           | Inline          | Good balance |
-| 100       | Inline        | Inline         | Inline          | Aggressive, binary grows more |
-| 500       | Inline        | Inline         | Inline          | Very aggressive, potential size explosion |
+| Threshold | @tiny (cost 1) | @square (cost 5) | @big (cost 47) | @heavy_compute (cost 56) | Trade-off |
+|-----------|----------------|------------------|----------------|--------------------------|-----------|
+| 1         | Skip           | Skip             | Skip           | Skip                     | Too conservative, no inlining |
+| 3         | Inline         | Skip             | Skip           | Skip                     | Only 1-instruction functions inline |
+| 10        | Inline         | Inline           | Skip           | Skip                     | Small utilities inline |
+| 45 (default)| Inline       | Inline           | Skip           | Skip                     | Good balance |
+| 50        | Inline         | Inline           | Inline         | Skip                     | Aggressive, binary grows more |
+| 100       | Inline         | Inline           | Inline         | Inline                   | Very aggressive, potential size explosion |
 
 The default threshold of 45 was chosen because it correctly handles the
 10 test cases in this assignment while representing a realistic production

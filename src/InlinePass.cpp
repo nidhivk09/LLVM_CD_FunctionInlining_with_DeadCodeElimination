@@ -22,24 +22,7 @@
 
 using namespace llvm;
 
-// ---------------------------------------------------------------------------
-// Strip ALL lifetime intrinsics from the entire module BEFORE any inlining.
-//
-// Root cause of the crash on LLVM 23 / Apple M1:
-//   clang -O0 emits llvm.lifetime.start.p0 / llvm.lifetime.end.p0 calls.
-//   These intrinsic *declarations* carry an AttributeList that is interned
-//   in the LLVMContext of the process that created the .ll file (opt's
-//   context).  When our plugin dylib calls InlineFunction(), LLVM's inliner
-//   copies those call instructions into the caller; the post-pass verifier
-//   then checks that every AttributeList belongs to the current Module's
-//   LLVMContext.  Because the plugin is a separately-loaded dylib it gets a
-//   fresh LLVMContext for its own static data, so the interned attribute
-//   objects don't match and the verifier aborts.
-//
-//   Lifetime markers are purely optimisation hints (they help mem2reg and
-//   alias analysis).  Deleting them before inlining is safe and correct —
-//   the program's observable behaviour is unchanged.
-// ---------------------------------------------------------------------------
+
 static void stripAllLifetimeIntrinsics(Module &M) {
     SmallVector<Instruction *, 32> ToErase;
     for (Function &F : M) {
@@ -59,24 +42,13 @@ static void stripAllLifetimeIntrinsics(Module &M) {
         I->eraseFromParent();
 }
 
-// ---------------------------------------------------------------------------
-// clang -O0 emits `noinline` on every function.
-// Remove it (and `optnone` for safety) so InlineFunction() will actually
-// inline the call.  We only touch functions we have already decided to
-// inline, so we never silently inline something we shouldn't.
-// ---------------------------------------------------------------------------
+
 static void removeInlineBarriers(Function &F) {
     F.removeFnAttr(Attribute::NoInline);
     F.removeFnAttr(Attribute::OptimizeNone);
 }
 
-// ---------------------------------------------------------------------------
-// Count semantically meaningful instructions only.
-// clang -O0 wraps every local variable in alloca/store/load — those are
-// scaffolding, not logic.  We skip them plus ret, unconditional branches,
-// and all llvm.* intrinsic calls so the cost numbers match the intent of
-// the original hand-written .ll tests.
-// ---------------------------------------------------------------------------
+
 static unsigned countMeaningfulInstructions(Function &F) {
     unsigned Count = 0;
     for (auto &BB : F) {
@@ -151,6 +123,7 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
                         if (CB->getCalledFunction() == &F) CallCount++;
 
                 unsigned Cost = InstCount * CallCount;
+
                 errs() << "  @" << F.getName()
                        << ": instrs=" << InstCount
                        << " calls=" << CallCount
@@ -166,7 +139,6 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
 
             // ── Phase 2: inline ───────────────────────────────────────────
             for (Function *F : ToInline) {
-                // Remove noinline / optnone that clang -O0 adds
                 removeInlineBarriers(*F);
 
                 SmallVector<CallBase *, 8> Calls;
@@ -178,8 +150,7 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
                 for (CallBase *CB : Calls) {
                     if (!CB->getParent()) continue;
                     InlineFunctionInfo IFI;
-                    // Pass `false` for MergeAttributes, `nullptr` for CalleeAAR, and `false` for InsertLifetime.
-                    // This prevents InlineFunction from creating new llvm.lifetime intrinsics with the plugin's LLVMContext.
+                    
                     if (InlineFunction(*CB, IFI, false, nullptr, false).isSuccess())
                         Changed = true;
                 }
@@ -208,7 +179,7 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
     }
 };
 
-} // namespace
+} 
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {

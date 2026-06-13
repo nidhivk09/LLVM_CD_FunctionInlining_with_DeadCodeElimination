@@ -62,6 +62,9 @@ for c_file in tests/*.c; do
     -S \
     "$c_file" \
     -o "$ll_file"
+    
+  # Clean up memory scaffolding so inlining doesn't artificially bloat line counts
+  "$OPT" -passes=mem2reg -S "$ll_file" -o "$ll_file" 2>/dev/null || true
 done
 echo ""
 
@@ -85,7 +88,6 @@ run_test() {
     return
   fi
 
-  # Run opt — do NOT use set -e here; we want to capture failure gracefully
   local opt_stderr
   opt_stderr=$( "$OPT" \
     -load-pass-plugin "$PLUGIN" \
@@ -94,7 +96,7 @@ run_test() {
     -o "$output" \
     2>&1 ) || true
 
-  # Show relevant lines from pass output
+
   echo "$opt_stderr" \
     | grep -E "recursive|blocked|inline|deleted|skipped|cost|instrs" \
     | sed 's/^/  │  /' || true

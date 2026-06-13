@@ -16,10 +16,11 @@
 | `Function::eraseFromParent()` | `llvm/IR/Function.h` | Deletes function from module |
 | `BasicBlock` | `llvm/IR/BasicBlock.h` | One BB = one entry, one exit, sequential instructions |
 | `isa<DbgInfoIntrinsic>` | `llvm/IR/IntrinsicInst.h` | True if the instruction is debug metadata |
+| `isa<UncondBrInst>` | `llvm/IR/Instructions.h` | True if unconditional branch (LLVM 23+) |
 | `Instruction` | `llvm/IR/Instructions.h` | One IR instruction (%x = add i32 ...) |
 | `dyn_cast<CallBase>` | `llvm/IR/Instructions.h` | Safe RTTI-less cast to CallBase, returns nullptr on failure |
 | `CallBase::getCalledFunction()` | `llvm/IR/Instructions.h` | Returns Function* for direct calls, nullptr for indirect |
-| `InlineFunction(CI, IFI)` | `llvm/Transforms/Utils/Cloning.h` | Does the actual inlining — replaces call with callee body |
+| `InlineFunction(*CB, IFI, false, nullptr, false)` | `llvm/Transforms/Utils/Cloning.h` | Does the actual inlining (last arg `InsertLifetime=false`) |
 | `InlineFunctionInfo` | `llvm/Transforms/Utils/Cloning.h` | Output struct from InlineFunction() |
 | `InlineResult::isSuccess()` | `llvm/Transforms/Utils/Cloning.h` | Did the inlining succeed? |
 | `InlineResult::getFailureReason()` | `llvm/Transforms/Utils/Cloning.h` | Why did inlining fail? |
@@ -49,7 +50,7 @@ opt calls InlineAndDCEPass::run(Module &M, ModuleAnalysisManager &MAM)
          │     for each Candidate in ToInline:
          │       find all CallInsts CI pointing to Candidate
          │       for each CI:
-         │         InlineFunction(CI, IFI)  ← pastes callee body here
+         │         InlineFunction(*CB, IFI, false, nullptr, false)  ← pastes callee body here
          │
          └─ Phase 3: DELETE ──────────────────────────────────────────────
                do:
@@ -65,7 +66,7 @@ opt calls InlineAndDCEPass::run(Module &M, ModuleAnalysisManager &MAM)
 
 ## 3. How InlineFunction() Works Internally
 
-When we call `InlineFunction(*CI, IFI)`, LLVM performs the following steps
+When we call `InlineFunction(*CB, IFI, false, nullptr, false)`, LLVM performs the following steps
 internally (you don't need to implement these, but understanding them helps
 you reason about what the output IR looks like):
 
@@ -139,7 +140,7 @@ compilation settings.
 WRONG (crashes):
   for (Use &U : F->uses()) {
     if (auto *CB = dyn_cast<CallBase>(U.getUser())) {
-      InlineFunction(*CB, IFI);  // ← modifies the use list while iterating it!
+      InlineFunction(*CB, IFI, false, nullptr, false);  // ← modifies the use list while iterating it!
     }
   }
 
@@ -154,7 +155,7 @@ RIGHT (safe):
   // Second pass: modify safely
   for (CallBase *CB : Calls) {
     if (CB->getParent())
-      InlineFunction(*CB, IFI);
+      InlineFunction(*CB, IFI, false, nullptr, false);
   }
 ```
 
