@@ -230,3 +230,6 @@ handles this — verify it's present.
 **macOS: wrong architecture (arm64 vs x86_64)**  
 → If your LLVM was built for `AArch64` and your compiler targets `x86_64`,
 add `-DCMAKE_OSX_ARCHITECTURES=arm64` to the cmake command in `build.sh`.
+
+**"Attribute list does not match Module context! ... llvm.lifetime" crash**
+→ This happens when `InlineFunction()` tries to insert lifetime intrinsics into the IR, using the dynamically loaded plugin's static `LLVMContextImpl`, which conflicts with the host `opt` executable's context. The current implementation passes `InsertLifetime = false` to `InlineFunction()` to fix this issue.

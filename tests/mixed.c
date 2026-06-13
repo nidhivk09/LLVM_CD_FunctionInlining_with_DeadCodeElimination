@@ -1,0 +1,67 @@
+int tiny(int x) {
+    return x + 1;
+}
+
+int big(int x) {
+    int a0  = x * 2;
+    int a1  = a0 + 1;
+    int a2  = a1 * 3;
+    int a3  = a2 + 5;
+    int a4  = a3 * 2;
+    int a5  = a4 + 7;
+    int a6  = a5 * 2;
+    int a7  = a6 + 11;
+    int a8  = a7 * 3;
+    int a9  = a8 + 13;
+    int a10 = a9 * 2;
+    int a11 = a10 + 17;
+    int a12 = a11 * 2;
+    int a13 = a12 + 19;
+    int a14 = a13 * 3;
+    int a15 = a14 + 23;
+    int a16 = a15 * 2;
+    int a17 = a16 + 29;
+    int a18 = a17 * 2;
+    int a19 = a18 + 31;
+    int a20 = a19 * 3;
+    int a21 = a20 + 37;
+    int a22 = a21 * 2;
+    int a23 = a22 + 41;
+    int a24 = a23 * 2;
+    int a25 = a24 + 43;
+    int a26 = a25 * 3;
+    int a27 = a26 + 47;
+    int a28 = a27 * 2;
+    int a29 = a28 + 53;
+    int a30 = a29 * 3;
+    int a31 = a30 + 59;
+    int a32 = a31 * 2;
+    int a33 = a32 + 61;
+    int a34 = a33 * 2;
+    int a35 = a34 + 67;
+    int a36 = a35 * 3;
+    int a37 = a36 + 71;
+    int a38 = a37 * 2;
+    int a39 = a38 + 73;
+    int a40 = a39 * 3;
+    int a41 = a40 + 79;
+    int a42 = a41 * 2;
+    int a43 = a42 + 83;
+    int a44 = a43 * 2;
+    int a45 = a44 + 89;
+    int final = a45 + 999;
+    return final;
+}
+
+int recur(int n) {
+    if (n == 0) return 1;
+    return n * recur(n - 1);
+}
+
+int main() {
+    int a = tiny(10);
+    int b = big(a);
+    int c = recur(5);
+    int total = b + c;
+    return total;
+}

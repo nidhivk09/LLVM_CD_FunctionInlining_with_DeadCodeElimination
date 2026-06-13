@@ -261,4 +261,4 @@ opt -verify -S tests/output/mixed_after.ll -o /dev/null
 
 All returned exit code 0 (no IR errors). This confirms that `InlineFunction()`
 correctly maintained SSA form, type correctness, and CFG integrity after
-all transformations.
+all transformations. Specifically, because the pass disables `InsertLifetime` during inlining, the module verifier also confirms that no invalid cross-context `AttributeList` mismatches were introduced for `llvm.lifetime` markers.

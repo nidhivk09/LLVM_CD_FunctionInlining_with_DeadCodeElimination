@@ -136,3 +136,13 @@ iterating over the function's instruction list while calling `InlineFunction()`,
 our iterator would point to freed memory → undefined behavior or crash.
 
 Collecting all pointers first, then modifying, makes the pass safe.
+
+---
+
+## 9. Handling LLVMContext Boundaries and Attributes
+
+When compiling LLVM passes out-of-tree as dynamic libraries (`.dylib` or `.so`) against a statically compiled LLVM build, the plugin sometimes receives its own distinct copy of core static variables and context structures (such as `LLVMContextImpl`).
+
+By default, the `InlineFunction()` API attempts to insert `llvm.lifetime.start` and `llvm.lifetime.end` intrinsic calls for any dynamically allocated stack variables it brings into the caller. During this synthesis, it uses the plugin's internal `LLVMContext` to create the intrinsic's `AttributeList`. When the pass returns control to the host executable (`opt`), the LLVM verifier notices that these new attributes belong to a different context than the `Module` being verified, triggering a fatal error (`Attribute list does not match Module context!`).
+
+To solve this, our design disables the automatic generation of lifetime intrinsics by passing `InsertLifetime = false` to `InlineFunction()`. In addition, we proactively strip any existing clang-generated lifetime intrinsics during Phase 0 to ensure the IR remains clean and the verifier passes on all platforms without crashing.

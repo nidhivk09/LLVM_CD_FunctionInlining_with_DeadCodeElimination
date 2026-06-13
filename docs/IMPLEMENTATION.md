@@ -91,6 +91,9 @@ back to wherever the call result was used.
 The `CallInst` (`call i32 @add(...)`) is erased. This is why the `CI` pointer
 is invalid after `InlineFunction()` returns.
 
+**Step 6: Handle lifetime intrinsics (and why we disable it).**  
+By default, if the inlined function has `alloca`s, `InlineFunction()` inserts `llvm.lifetime.start` and `llvm.lifetime.end` intrinsics to bound the lifetime of those stack slots. However, because our pass is a dynamically loaded plugin that links LLVM statically, inserting these new intrinsics synthesizes new `AttributeList` objects using the plugin's own `LLVMContextImpl`. This clashes with the `LLVMContext` of the `Module` owned by `opt`, causing a verifier crash: `Attribute list does not match Module context!`. By passing `InsertLifetime = false` to `InlineFunction()`, we prevent this context mismatch.
+
 ---
 
 ## 4. How use_empty() Detects Dead Functions

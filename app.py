@@ -24,7 +24,7 @@ def count_real_instructions(body):
         s = line.strip()
         if (s and not s.startswith(";") and not s.startswith("define")
                 and s != "}" and not re.match(r"^\w[\w.]*:$", s)
-                and "llvm.dbg" not in s):
+                and "llvm.dbg" not in s and "llvm.lifetime" not in s):
             count += 1
     return count
 
@@ -100,26 +100,69 @@ def analyse():
             "pct": round((1 - la / max(lb, 1)) * 100, 1),
         }
 
-    before_lines = [l.strip() for l in before_ir.splitlines() if l.strip()]
-    after_lines  = [l.strip() for l in after_ir.splitlines() if l.strip()] if after_ir else []
+    before_lines_full = before_ir.splitlines() if before_ir else []
+    after_lines_full = after_ir.splitlines() if after_ir else []
 
-    deleted_lines, added_lines = [], []
+    sync_before, sync_after = [], []
     if after_ir:
-        matcher = difflib.SequenceMatcher(None, before_lines, after_lines)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag in ('delete', 'replace'):
-                deleted_lines.extend(before_lines[i1:i2])
-            if tag in ('insert', 'replace'):
-                added_lines.extend(after_lines[j1:j2])
+        matcher = difflib.SequenceMatcher(None, before_lines_full, after_lines_full)
+        opcodes = matcher.get_opcodes()
+        
+        # Merge consecutive delete and insert into replace to force side-by-side layout
+        merged_opcodes = []
+        i = 0
+        while i < len(opcodes):
+            tag, i1, i2, j1, j2 = opcodes[i]
+            if tag == 'delete' and i + 1 < len(opcodes) and opcodes[i+1][0] == 'insert':
+                _, _, _, next_j1, next_j2 = opcodes[i+1]
+                merged_opcodes.append(('replace', i1, i2, next_j1, next_j2))
+                i += 2
+            elif tag == 'insert' and i + 1 < len(opcodes) and opcodes[i+1][0] == 'delete':
+                _, next_i1, next_i2, _, _ = opcodes[i+1]
+                merged_opcodes.append(('replace', next_i1, next_i2, j1, j2))
+                i += 2
+            else:
+                merged_opcodes.append(opcodes[i])
+                i += 1
+
+        for tag, i1, i2, j1, j2 in merged_opcodes:
+            if tag == 'equal':
+                for i, j in zip(range(i1, i2), range(j1, j2)):
+                    sync_before.append({"text": before_lines_full[i], "type": "equal"})
+                    sync_after.append({"text": after_lines_full[j], "type": "equal"})
+            elif tag == 'replace':
+                b_lines = before_lines_full[i1:i2]
+                a_lines = after_lines_full[j1:j2]
+                for idx in range(max(len(b_lines), len(a_lines))):
+                    if idx < len(b_lines):
+                        sync_before.append({"text": b_lines[idx], "type": "delete"})
+                    else:
+                        sync_before.append({"text": " ", "type": "empty"})
+                    if idx < len(a_lines):
+                        sync_after.append({"text": a_lines[idx], "type": "insert"})
+                    else:
+                        sync_after.append({"text": " ", "type": "empty"})
+            elif tag == 'delete':
+                for i in range(i1, i2):
+                    sync_before.append({"text": before_lines_full[i], "type": "delete"})
+                    sync_after.append({"text": " ", "type": "empty"})
+            elif tag == 'insert':
+                for j in range(j1, j2):
+                    sync_before.append({"text": " ", "type": "empty"})
+                    sync_after.append({"text": after_lines_full[j], "type": "insert"})
+
+    c_path = TESTS_DIR / f"{stem}.c"
+    c_code = c_path.read_text() if c_path.exists() else None
 
     return jsonify({
+        "c_code":     c_code,
         "before_ir":  before_ir,
         "after_ir":   after_ir,
         "base_ir":    base_ir,
         "decisions":  decisions,
         "metrics":    metrics,
-        "deleted":    deleted_lines,
-        "added":      added_lines,
+        "sync_before": sync_before,
+        "sync_after":  sync_after,
     })
 
 @app.route("/api/build", methods=["POST"])
