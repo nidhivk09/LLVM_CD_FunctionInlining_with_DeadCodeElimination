@@ -91,7 +91,8 @@ static unsigned countMeaningfulInstructions(Function &F) {
                 if (CB->getCalledFunction() &&
                     CB->getCalledFunction()->isIntrinsic()) continue;
             // Skip unconditional branches — they are just block glue
-            if (isa<UncondBrInst>(&I)) continue;
+            if (auto *BI = dyn_cast<BranchInst>(&I))
+                if (BI->isUnconditional()) continue;
             Count++;
         }
     }
