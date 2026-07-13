@@ -149,16 +149,22 @@ function render() {
     ms.style.display='';
     const m=d.metrics;
     
-    const renderMetric = (label, val, delta) => {
+    const renderMetric = (label, val, delta, subtext) => {
         let dh='';
-        if(delta!==undefined){const sign=delta>0?'+':'';const cls=delta>0?'delta-pos':'delta-neg';dh=`<div class="metric-delta ${cls}">${sign}${delta}</div>`}
-        return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${val}</div>${dh}</div>`;
+        if(delta!==undefined){
+            const sign=delta>0?'+':'';
+            const cls=delta>0?'delta-pos':(delta<0?'delta-neg':'delta-zero');
+            dh=`<div class="metric-delta ${cls}">${sign}${delta}</div>`
+        }
+        let st='';
+        if(subtext) st=`<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${subtext}</div>`;
+        return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${val}</div>${dh}${st}</div>`;
     }
 
     document.getElementById('metrics-row').innerHTML=
-      renderMetric('Functions', m.funcs_after, m.funcs_after - m.funcs_before) +
-      renderMetric('Calls', m.calls_after, m.calls_after - m.calls_before) +
-      renderMetric('IR Reduction', m.pct + '%');
+      renderMetric('Functions', m.funcs_after, m.funcs_after - m.funcs_before, `${m.funcs_before} &rarr; ${m.funcs_after}`) +
+      renderMetric('Calls', m.calls_after, m.calls_after - m.calls_before, `${m.calls_before} &rarr; ${m.calls_after}`) +
+      renderMetric('IR Reduction', m.pct + '%', undefined, `${m.lines_before} lines &rarr; ${m.lines_after} lines`);
   } else ms.style.display='none';
 
 

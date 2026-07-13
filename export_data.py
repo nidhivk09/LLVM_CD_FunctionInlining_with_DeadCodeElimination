@@ -69,7 +69,7 @@ def main():
         path = TESTS_DIR / filename
         stem = path.stem
         
-        ll_path = TESTS_DIR / f"{stem}.ll"
+        ll_path = TESTS_DIR / "ll" / f"{stem}.ll"
         if not ll_path.exists(): continue
         before_ir = ll_path.read_text()
         
@@ -95,8 +95,10 @@ def main():
             metrics = {
                 "funcs_before": len(re.findall(r"^define\b", before_ir, re.MULTILINE)),
                 "funcs_after":  len(re.findall(r"^define\b", after_ir,  re.MULTILINE)),
-                "calls_before": len(re.findall(r"\bcall\b",  before_ir)),
-                "calls_after":  len(re.findall(r"\bcall\b",  after_ir)),
+                "calls_before": len(re.findall(r"(?<!%)\bcall\b",  before_ir)),
+                "calls_after":  len(re.findall(r"(?<!%)\bcall\b",  after_ir)),
+                "lines_before": lb,
+                "lines_after": la,
                 "pct": round((1 - la / max(lb, 1)) * 100, 1),
             }
 
