@@ -79,7 +79,7 @@ def index():
 
 @app.route("/api/files")
 def list_files():
-    files = sorted([f.name for f in TESTS_DIR.glob("*.ll")])
+    files = sorted([f.name for f in TESTS_DIR.glob("*.c")])
     return jsonify(files)
 
 @app.route("/api/analyse")
@@ -87,9 +87,11 @@ def analyse():
     filename  = request.args.get("file", "")
     threshold = int(request.args.get("threshold", THRESHOLD))
     path = TESTS_DIR / filename
-    if not path.exists(): return jsonify({"error": "file not found"}), 404
-    before_ir = path.read_text()
     stem = path.stem
+    
+    ll_path = TESTS_DIR / f"{stem}.ll"
+    if not ll_path.exists(): return jsonify({"error": "file not found"}), 404
+    before_ir = ll_path.read_text()
     after_path    = OUTPUT_DIR / f"{stem}_after.ll"
     baseline_path = OUTPUT_DIR / f"{stem}_baseline.ll"
     after_ir  = after_path.read_text()    if after_path.exists()    else None

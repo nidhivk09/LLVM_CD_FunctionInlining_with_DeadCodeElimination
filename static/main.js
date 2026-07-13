@@ -308,7 +308,7 @@ async function renderSummary(){
     const barWidth = pct ? Math.round((pct / maxReduction) * 100) : 0;
     
     return `<tr onclick="load('${r.file}');switchTab('ir')" style="cursor:pointer">
-      <td>${r.file.replace('.ll','')}</td>
+      <td>${r.file.replace('.c','')}</td>
       <td>${inlined.length ? inlined.length : '0'} functions</td>
       <td>${m ? (m.funcs_after - m.funcs_before) : '—'}</td>
       <td>${m ? (m.calls_after - m.calls_before) : '—'}</td>
