@@ -47,7 +47,14 @@ def has_cycle(name, functions):
 def analyse_decisions(before_ir, threshold):
     functions = extract_functions(before_ir)
     results = []
+    edges = []
     for name, body in functions.items():
+        # collect edges for call graph
+        callees = re.findall(r"\bcall\b[^@]*@(\w+)\s*\(", body)
+        for callee in callees:
+            edges.append({"source": name, "target": callee})
+
+
         if name == "main": continue
         instrs = count_real_instructions(body)
         calls  = count_call_sites(name, before_ir)
@@ -64,7 +71,7 @@ def analyse_decisions(before_ir, threshold):
         results.append({"name": name, "instrs": instrs, "calls": calls,
                         "cost": cost, "cost_str": cost_str, "cycle": cycle,
                         "decision": decision, "reason": reason})
-    return results
+    return results, edges
 
 @app.route("/")
 def index():
@@ -87,7 +94,18 @@ def analyse():
     baseline_path = OUTPUT_DIR / f"{stem}_baseline.ll"
     after_ir  = after_path.read_text()    if after_path.exists()    else None
     base_ir   = baseline_path.read_text() if baseline_path.exists() else None
-    decisions = analyse_decisions(before_ir, threshold)
+    decisions, edges = analyse_decisions(before_ir, threshold)
+
+    inlined_ir = None
+    if after_ir:
+        # Generate mock 'inlined_ir' (Phase 2) by putting back deleted functions
+        before_funcs = extract_functions(before_ir)
+        after_funcs = extract_functions(after_ir)
+        inlined_ir = after_ir
+        for f_name, f_body in before_funcs.items():
+            if f_name not in after_funcs:
+                # Append the removed function to simulate pre-DCE state
+                inlined_ir += "\n\n" + f_body
 
     metrics = None
     if after_ir:
@@ -153,27 +171,24 @@ def analyse():
 
     c_path = TESTS_DIR / f"{stem}.c"
     c_code = c_path.read_text() if c_path.exists() else None
+    
+    c_after_path = OUTPUT_DIR / f"{stem}_after.c"
+    c_after_code = c_after_path.read_text() if c_after_path.exists() else None
 
     return jsonify({
         "c_code":     c_code,
+        "c_after_code": c_after_code,
         "before_ir":  before_ir,
+        "inlined_ir": inlined_ir,
         "after_ir":   after_ir,
         "base_ir":    base_ir,
         "decisions":  decisions,
+        "call_graph": edges,
         "metrics":    metrics,
         "sync_before": sync_before,
         "sync_after":  sync_after,
     })
 
-@app.route("/api/build", methods=["POST"])
-def build():
-    res = subprocess.run(["bash", str(BUILD_SCRIPT)], capture_output=True, text=True)
-    return jsonify({"ok": res.returncode == 0, "output": res.stderr[-1000:]})
-
-@app.route("/api/run", methods=["POST"])
-def run_all():
-    res = subprocess.run(["bash", str(RUN_SCRIPT)], capture_output=True, text=True)
-    return jsonify({"ok": res.returncode == 0, "output": res.stdout[-2000:]})
 
 if __name__ == "__main__":
     Path("static").mkdir(exist_ok=True)
