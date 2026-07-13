@@ -1,7 +1,7 @@
 # Assignment 12: Function Inlining with Dead Code Elimination
 
 An LLVM `ModulePass` that selectively inlines small functions using a cost
-heuristic (`instructions × call_sites`), then removes dead functions and
+heuristic (`instructions × call_sites`), then removes dead functions and 
 unreachable basic blocks.
 
 ---
