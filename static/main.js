@@ -263,14 +263,56 @@ function renderTimeline() {
     }
 }
 
+function computeDecisions(d, threshold) {
+  const decisions = [];
+  if (!d.functions) return;
+  for (const fn of d.functions) {
+    let decision, reason, cost_str;
+    if (fn.cycle) {
+      decision = "BLOCKED";
+      reason = "cycle detected in call graph";
+      cost_str = "—";
+    } else if (fn.calls === 0) {
+      decision = "SKIP";
+      reason = "0 call sites in module";
+      cost_str = "0";
+    } else if (fn.cost >= threshold) {
+      decision = "SKIP";
+      reason = `cost ${fn.cost} ≥ threshold ${threshold}`;
+      cost_str = String(fn.cost);
+    } else {
+      decision = "INLINE";
+      reason = `cost ${fn.cost} < threshold ${threshold}`;
+      cost_str = String(fn.cost);
+    }
+    decisions.push({
+      name: fn.name,
+      instrs: fn.instrs,
+      calls: fn.calls,
+      cost: fn.cost,
+      cost_str: cost_str,
+      cycle: fn.cycle,
+      decision: decision,
+      reason: reason
+    });
+  }
+  d.decisions = decisions;
+}
+
 // ── Data fetching ──────────────────────────────────────────────────────────
 async function load(file){
   state.selected=file;
   document.querySelectorAll('.file-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.file===file);
   });
-  const res=await fetch(`/api/analyse?file=${encodeURIComponent(file)}&threshold=${state.threshold}`);
-  state.data=await res.json();
+  
+  if (!window.LLVM_DATA) {
+      console.error("No data available. Please run export_data.py first.");
+      return;
+  }
+  
+  state.data = Object.assign({}, window.LLVM_DATA.results[file]);
+  computeDecisions(state.data, state.threshold);
   
   // Render the static parts (cards, call graph, cost charts)
   render();
@@ -279,8 +321,11 @@ async function load(file){
 }
 
 async function loadFiles(){
-  const res=await fetch('/api/files');
-  state.files=await res.json();
+  if (!window.LLVM_DATA) {
+      document.getElementById('file-list').innerHTML = '<div style="padding:10px;color:red;">Data missing.<br>Run <b>export_data.py</b> first.</div>';
+      return;
+  }
+  state.files = window.LLVM_DATA.files;
   const list=document.getElementById('file-list');
   list.innerHTML=state.files.map(f=>
     `<div class="file-item" data-file="${f}" onclick="load('${f}')">${f}</div>`
@@ -292,12 +337,13 @@ async function renderSummary(){
   const wrap = document.getElementById('summary-table-wrap');
   wrap.innerHTML = '<span style="color:var(--text-muted);font-size:12px;font-family:var(--font-mono)">Analyzing test suite...</span>';
 
-  const allResults = await Promise.all(
-    state.files.map(f =>
-      fetch(`/api/analyse?file=${encodeURIComponent(f)}&threshold=${state.threshold}`)
-        .then(r=>r.json()).then(d=>({file:f, ...d}))
-    )
-  );
+  if (!window.LLVM_DATA) return;
+  
+  const allResults = state.files.map(f => {
+    const d = Object.assign({}, window.LLVM_DATA.results[f]);
+    computeDecisions(d, state.threshold);
+    return { file: f, ...d };
+  });
 
   const maxReduction = Math.max(...allResults.filter(r=>r.metrics).map(r=>r.metrics.pct), 1);
 
