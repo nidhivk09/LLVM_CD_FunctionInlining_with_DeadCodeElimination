@@ -52,13 +52,24 @@ opt calls InlineAndDCEPass::run(Module &M, ModuleAnalysisManager &MAM)
          │       for each CI:
          │         InlineFunction(*CB, IFI, false, nullptr, false)  ← pastes callee body here
          │
-         └─ Phase 3: DELETE ──────────────────────────────────────────────
+         ├─ Phase 3: DELETE ──────────────────────────────────────────────
                do:
                  local_changed = false
                  for each Function F in M:
                    if F.use_empty() (and not main/decl):
                      F.eraseFromParent()  ← removed from module
-                     local_changed = true
+                 if erased, local_changed = true
+               while local_changed
+
+         └─ Phase 4: INSTRUCTION DCE ───────────────────────────────────────
+               do:
+                 local_changed = false
+                 for each Function F in M:
+                   for each BasicBlock BB in F:
+                     for each Instruction I in BB:
+                       if isInstructionTriviallyDead(I):
+                         I.eraseFromParent()
+                         local_changed = true
                while local_changed
 ```
 

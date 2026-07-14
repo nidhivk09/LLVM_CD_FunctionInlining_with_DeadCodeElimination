@@ -177,6 +177,21 @@ The call chain collapses entirely into `@main` and the intermediate functions ar
 
 ---
 
+### Test 11: only_dce.ll (@dead_func and instruction DCE)
+| Metric | Result |
+|--------|--------|
+| Function characteristics | `@dead_func` has 0 callers |
+| Cost evaluation | Cost = 0 (skipped) |
+| Decision | SKIP inline, DELETE function, DELETE dead instructions |
+| Functions before pass | 2 (@dead_func, @main) |
+| Functions after pass | 1 (@main only) |
+| Call instructions after pass | 0 |
+| Result | ✓ PASS |
+
+The function `@dead_func` is completely deleted by Phase 3. The unused instructions within `@main` are deleted by Phase 4.
+
+---
+
 ## 2. Baseline Comparison: Our Pass vs LLVM's -always-inline
 
 LLVM's built-in `-always-inline` pass inlines functions that have the
@@ -192,6 +207,7 @@ implements its own cost-based trigger where LLVM's default behavior would not.
 | multi_call | 1 | 2 | We inline all 5 sites; built-in does not |
 | mixed | 3 | 4 | We inline @tiny; built-in does not |
 | chain_inline | 1 | 4 | We inline the entire chain; built-in does not |
+| only_dce | 1 | 2 | We delete the dead function; built-in does not |
 
 **Conclusion:** Our cost-heuristic pass provides meaningful inlining for
 functions that don't carry the `alwaysinline` attribute, which covers the
@@ -241,9 +257,10 @@ IR line count before and after the pass, as a proxy for code size:
 | mixed | 104 | 96 | 8% |
 | single_use | 28 | 20 | 29% |
 | multi_func | 36 | 20 | 44% |
-| mutual_recursive | 59 | 59 | 0% (correctly blocked) |
-| mixed_recursive | 51 | 44 | 14% |
+| mutual_recursive | 59 | 59 | 0% |
+| mixed_recursive | 55 | 44 | 20% |
 | chain_inline | 42 | 20 | 52% |
+| only_dce | 27 | 21 | 22% |
 
 Every test either reduces or holds flat — the 0% cases are correct because those functions were intentionally skipped or blocked. `multi_func` (44%) and `chain_inline` (52%) are the strongest results.
 
