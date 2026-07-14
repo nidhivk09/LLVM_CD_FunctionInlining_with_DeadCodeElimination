@@ -160,6 +160,7 @@ run_test "multi_func"       1  "@add_one and @times_two both inlined"
 run_test "mutual_recursive" 3  "@is_even and @is_odd blocked (mutual recursion)"
 run_test "mixed_recursive"  2  "@fib blocked, @negate inlined"
 run_test "chain_inline"     1  "@funcA→B→C: entire chain collapses into main"
+run_test "only_dce"         1  "@dead_func: skipped and deleted"
 
 # ── baseline comparison ────────────────────────────────────────────────────
 echo "  baseline comparison  (our pass vs -always-inline)"
@@ -167,7 +168,7 @@ echo "  ────────────────────────
 printf "  %-22s  %-8s  %-8s  %s\n" "test" "ours" "builtin" "lines(ours)"
 printf "  %-22s  %-8s  %-8s  %s\n" "──────────────────────" "────────" "────────" "──────────"
 
-for name in small_func large_func recursive_func multi_call mixed single_use multi_func mutual_recursive mixed_recursive chain_inline; do
+for name in small_func large_func recursive_func multi_call mixed single_use multi_func mutual_recursive mixed_recursive chain_inline only_dce; do
   baseline_out="tests/output/${name}_baseline.ll"
 
   "$OPT" -passes="always-inline" \
