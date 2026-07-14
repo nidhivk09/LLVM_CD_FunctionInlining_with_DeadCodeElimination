@@ -175,6 +175,29 @@ struct InlineAndDCEPass : public PassInfoMixin<InlineAndDCEPass> {
             }
         } while (LocalChanged);
 
+        // ── Phase 4: Instruction-level DCE ────────────────────────────────
+        bool InstChanged;
+        do {
+            InstChanged = false;
+            for (Function &F : M) {
+                if (F.isDeclaration()) continue;
+                for (BasicBlock &BB : F) {
+                    SmallVector<Instruction *, 16> DeadInsts;
+                    for (Instruction &I : BB) {
+                        if (isInstructionTriviallyDead(&I)) {
+                            DeadInsts.push_back(&I);
+                        }
+                    }
+                    for (Instruction *I : DeadInsts) {
+                        errs() << "  @" << F.getName() << ": dead instruction deleted\n";
+                        I->eraseFromParent();
+                        InstChanged = true;
+                        Changed = true;
+                    }
+                }
+            }
+        } while (InstChanged);
+
         return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
     }
 };
