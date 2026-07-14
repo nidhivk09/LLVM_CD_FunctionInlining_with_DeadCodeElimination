@@ -1,7 +1,4 @@
-int dead_func(int x) {
-    int unused = x * 10; // dead instruction
-    return x * 42;
-}
+// dead_func was deleted
 
 int main() {
     int a = 5;

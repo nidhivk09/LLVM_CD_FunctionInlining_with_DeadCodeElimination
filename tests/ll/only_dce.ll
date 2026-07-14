@@ -6,13 +6,15 @@ target triple = "arm64-apple-macosx26.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @dead_func(i32 noundef %x) #0 {
 entry:
-  %mul = mul nsw i32 %x, 42
-  ret i32 %mul
+  %mul = mul nsw i32 %x, 10
+  %mul1 = mul nsw i32 %x, 42
+  ret i32 %mul1
 }
 
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @main() #0 {
 entry:
+  %add = add nsw i32 5, 10
   ret i32 0
 }
 

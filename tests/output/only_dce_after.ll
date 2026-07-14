@@ -6,6 +6,7 @@ target triple = "arm64-apple-macosx26.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define i32 @main() #0 {
 entry:
+  %add = add nsw i32 5, 10
   ret i32 0
 }
 
